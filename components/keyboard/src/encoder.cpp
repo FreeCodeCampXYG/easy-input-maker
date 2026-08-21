@@ -23,52 +23,112 @@ int transition_delta(std::uint8_t previous, std::uint8_t current) {
 
 }  // namespace
 
-bool EncoderStepQueue::push(int step) {
+bool EncoderStepQueue::push(int step,
+                            std::uint32_t timestamp_ms,
+                            std::uint32_t order_sequence) {
   if (step == 0) {
     return true;
   }
 
-  if (size_ > 0) {
-    const auto tail = (head_ + size_ - 1) % steps_.size();
-    const bool same_direction = (steps_[tail] > 0) == (step > 0);
-    if (same_direction) {
-      steps_[tail] += step;
+  if (size_ > 0 && coalescing_allowed_) {
+    const auto tail = (head_ + size_ - 1) % runs_.size();
+    const bool same_direction = (runs_[tail].steps > 0) == (step > 0);
+    const auto combined = static_cast<std::int64_t>(runs_[tail].steps) + step;
+    if (same_direction &&
+        combined >= -kEncoderStepRunMagnitudeLimit &&
+        combined <= kEncoderStepRunMagnitudeLimit) {
+      runs_[tail].steps += step;
+      runs_[tail].last_timestamp_ms = timestamp_ms;
+      runs_[tail].last_order_sequence = order_sequence;
       return true;
     }
   }
 
-  if (size_ >= steps_.size()) {
+  if (size_ >= runs_.size()) {
     return false;
   }
-  const auto tail = (head_ + size_) % steps_.size();
-  steps_[tail] = step;
+  const auto tail = (head_ + size_) % runs_.size();
+  runs_[tail] = {
+      step, timestamp_ms, timestamp_ms, order_sequence, order_sequence};
   ++size_;
+  coalescing_allowed_ = true;
   return true;
 }
 
-bool EncoderStepQueue::pop(int* step) {
-  if (step == nullptr || size_ == 0) {
+bool EncoderStepQueue::peek(EncoderStepRun* run) const {
+  if (run == nullptr) {
     return false;
   }
-  *step = steps_[head_];
-  steps_[head_] = 0;
-  head_ = (head_ + 1) % steps_.size();
+  if (claimed_run_valid_) {
+    *run = claimed_run_;
+    return true;
+  }
+  if (size_ == 0) {
+    return false;
+  }
+  *run = runs_[head_];
+  return true;
+}
+
+bool EncoderStepQueue::claim(EncoderStepRun* run) {
+  if (run == nullptr) {
+    return false;
+  }
+  if (claimed_run_valid_) {
+    *run = claimed_run_;
+    return true;
+  }
+  if (size_ == 0) {
+    return false;
+  }
+  claimed_run_ = runs_[head_];
+  claimed_run_valid_ = true;
+  runs_[head_] = {};
+  head_ = (head_ + 1) % runs_.size();
+  --size_;
+  *run = claimed_run_;
+  return true;
+}
+
+bool EncoderStepQueue::pop(EncoderStepRun* run) {
+  if (run == nullptr) {
+    return false;
+  }
+  if (claimed_run_valid_) {
+    *run = claimed_run_;
+    claimed_run_ = {};
+    claimed_run_valid_ = false;
+    return true;
+  }
+  if (size_ == 0) {
+    return false;
+  }
+  *run = runs_[head_];
+  runs_[head_] = {};
+  head_ = (head_ + 1) % runs_.size();
   --size_;
   return true;
 }
 
+void EncoderStepQueue::break_coalescing() {
+  coalescing_allowed_ = false;
+}
+
 void EncoderStepQueue::clear() {
-  steps_ = {};
+  runs_ = {};
+  claimed_run_ = {};
+  claimed_run_valid_ = false;
   head_ = 0;
   size_ = 0;
+  coalescing_allowed_ = true;
 }
 
 bool EncoderStepQueue::empty() const {
-  return size_ == 0;
+  return !claimed_run_valid_ && size_ == 0;
 }
 
 std::size_t EncoderStepQueue::size() const {
-  return size_;
+  return size_ + (claimed_run_valid_ ? 1U : 0U);
 }
 
 void EncoderDecoder::reset(std::uint8_t state) {

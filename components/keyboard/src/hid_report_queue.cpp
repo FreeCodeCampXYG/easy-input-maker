@@ -252,7 +252,8 @@ bool MouseWheelQueue::push(int vertical,
                            bool* coalesced,
                            bool* saturated,
                            BleOwnerToken ble_owner,
-                           std::uint32_t usb_epoch) {
+                           std::uint32_t usb_epoch,
+                           bool split_on_saturation) {
   if (coalesced != nullptr) {
     *coalesced = false;
   }
@@ -269,17 +270,28 @@ bool MouseWheelQueue::push(int vertical,
     if (tail.ble_owner == ble_owner && tail.usb_epoch == usb_epoch &&
         same_or_empty_direction(tail.vertical, vertical) &&
         same_or_empty_direction(tail.horizontal, horizontal)) {
-      tail.vertical = saturating_wheel_add(
-          tail.vertical, static_cast<std::int32_t>(vertical), saturated);
-      tail.horizontal = saturating_wheel_add(
-          tail.horizontal, static_cast<std::int32_t>(horizontal), saturated);
-      if (sequence != nullptr) {
-        *sequence = tail.sequence;
+      const auto vertical_sum =
+          static_cast<std::int64_t>(tail.vertical) + vertical;
+      const auto horizontal_sum =
+          static_cast<std::int64_t>(tail.horizontal) + horizontal;
+      const bool would_saturate =
+          vertical_sum > kMouseWheelAccumulationLimit ||
+          vertical_sum < -kMouseWheelAccumulationLimit ||
+          horizontal_sum > kMouseWheelAccumulationLimit ||
+          horizontal_sum < -kMouseWheelAccumulationLimit;
+      if (!split_on_saturation || !would_saturate) {
+        tail.vertical = saturating_wheel_add(
+            tail.vertical, static_cast<std::int32_t>(vertical), saturated);
+        tail.horizontal = saturating_wheel_add(
+            tail.horizontal, static_cast<std::int32_t>(horizontal), saturated);
+        if (sequence != nullptr) {
+          *sequence = tail.sequence;
+        }
+        if (coalesced != nullptr) {
+          *coalesced = true;
+        }
+        return true;
       }
-      if (coalesced != nullptr) {
-        *coalesced = true;
-      }
-      return true;
     }
   }
 

@@ -13,6 +13,20 @@ constexpr std::uint32_t kInputPressDebounceMs = 5;
 constexpr std::uint32_t kInputReleaseDebounceMs = 3;
 const char* const kTag = "gpio_keys";
 
+bool time_before_or_equal(std::uint32_t lhs, std::uint32_t rhs) {
+  return static_cast<std::int32_t>(lhs - rhs) <= 0;
+}
+
+bool ordered_event_before_or_equal(std::uint32_t lhs_ms,
+                                   std::uint32_t lhs_sequence,
+                                   std::uint32_t rhs_ms,
+                                   std::uint32_t rhs_sequence) {
+  if (lhs_ms != rhs_ms) {
+    return time_before_or_equal(lhs_ms, rhs_ms);
+  }
+  return static_cast<std::int32_t>(lhs_sequence - rhs_sequence) <= 0;
+}
+
 constexpr std::array<ai_keyboard::InputId, ai_keyboard::kKeyPins.size()> kKeyInputs{{
     ai_keyboard::InputId::Key1,
     ai_keyboard::InputId::Key2,
@@ -72,6 +86,9 @@ esp_err_t GpioInputScanner::begin(std::uint32_t now_ms) {
     key_debouncers_[index].reset(low_active_pressed(ai_keyboard::kKeyPins[index].gpio), now_ms);
   }
   encoder_press_debouncer_.reset(low_active_pressed(ai_keyboard::kEncoderPressPin), now_ms);
+  observed_active_mask_ = active_input_mask();
+  observed_active_order_sequence_ = 0;
+  next_input_order_sequence_ = 1;
   last_encoder_state_ = encoder_state();
   encoder_decoder_.reset(last_encoder_state_);
   pending_encoder_steps_.clear();
@@ -114,12 +131,84 @@ esp_err_t GpioInputScanner::begin(std::uint32_t now_ms) {
 }
 
 void GpioInputScanner::poll(std::uint32_t now_ms, InputEventCallback callback, void* context) {
-  InputEdgeSnapshot snapshot;
-  while (take_input_edge_snapshot(&snapshot)) {
-    process_input_snapshot(snapshot, callback, context);
+  // Capture the settling sample before draining. Any GPIO edge that arrives
+  // later has its own timestamped snapshot and remains for the next poll.
+  const auto settling_active_mask = active_input_mask();
+  bool source_backpressured = false;
+
+  while (true) {
+    InputEdgeSnapshot snapshot;
+    ai_keyboard::EncoderStepRun encoder_run;
+    const bool input_available =
+        peek_input_edge_snapshot(&snapshot) &&
+        time_before_or_equal(snapshot.timestamp_ms, now_ms);
+    const bool encoder_available =
+        peek_pending_encoder_steps(&encoder_run) &&
+        time_before_or_equal(encoder_run.first_timestamp_ms, now_ms);
+    if (!input_available && !encoder_available) {
+      break;
+    }
+
+    const bool take_input =
+        input_available &&
+        (!encoder_available ||
+         ordered_event_before_or_equal(snapshot.timestamp_ms,
+                                       snapshot.order_sequence,
+                                       encoder_run.first_timestamp_ms,
+                                       encoder_run.first_order_sequence));
+    const auto event_ms = take_input ? snapshot.timestamp_ms
+                                     : encoder_run.first_timestamp_ms;
+    process_debounce_deadlines_through(
+        event_ms, observed_active_mask_, callback, context);
+
+    if (take_input) {
+      if (!take_input_edge_snapshot(&snapshot)) {
+        continue;
+      }
+      observed_active_mask_ = snapshot.active_mask;
+      observed_active_order_sequence_ = snapshot.order_sequence;
+      process_input_snapshot(snapshot, callback, context);
+      continue;
+    }
+
+    if (!claim_pending_encoder_steps(&encoder_run)) {
+      continue;
+    }
+    // Do not remove source movement until the owner has durably admitted it
+    // to the pending HID-distance queue. A full downstream queue therefore
+    // causes a bounded retry instead of silently losing encoder distance.
+    if (!emit({encoder_run.steps > 0 ? ai_keyboard::InputId::EncoderRight
+                                    : ai_keyboard::InputId::EncoderLeft,
+               ai_keyboard::InputPhase::Pressed,
+               encoder_run.steps,
+               encoder_run.first_timestamp_ms,
+               encoder_run.first_order_sequence},
+              callback,
+              context)) {
+      source_backpressured = true;
+      break;
+    }
+    ai_keyboard::EncoderStepRun accepted_run;
+    if (!take_pending_encoder_steps(&accepted_run)) {
+      ESP_LOGE(kTag, "accepted encoder run missing from source queue");
+    } else if (accepted_run.first_order_sequence !=
+                   encoder_run.first_order_sequence ||
+               accepted_run.steps != encoder_run.steps) {
+      ESP_LOGE(kTag, "accepted encoder run changed after claim");
+    }
   }
 
-  process_input_snapshot({now_ms, active_input_mask()}, callback, context);
+  if (!source_backpressured) {
+    // Never leapfrog a retained encoder run with a newer button release or
+    // settling sample. The next poll resumes at the exact same source event.
+    process_debounce_deadlines_through(
+        now_ms, observed_active_mask_, callback, context);
+    observed_active_mask_ = settling_active_mask;
+    process_input_snapshot(
+        {now_ms, settling_active_mask, observed_active_order_sequence_},
+        callback,
+        context);
+  }
 
   const auto dropped = take_input_edge_drop_count();
   if (dropped > 0) {
@@ -129,15 +218,6 @@ void GpioInputScanner::poll(std::uint32_t now_ms, InputEventCallback callback, v
              static_cast<unsigned>(kInputEdgeQueueCapacity));
   }
 
-  int encoder_steps = 0;
-  while (take_pending_encoder_steps(&encoder_steps)) {
-    emit({encoder_steps > 0 ? ai_keyboard::InputId::EncoderRight
-                            : ai_keyboard::InputId::EncoderLeft,
-          ai_keyboard::InputPhase::Pressed,
-          encoder_steps},
-         callback,
-         context);
-  }
 }
 
 void GpioInputScanner::process_input_snapshot(const InputEdgeSnapshot& snapshot,
@@ -154,7 +234,9 @@ void GpioInputScanner::process_input_snapshot(const InputEdgeSnapshot& snapshot,
     }
     emit({kKeyInputs[index],
           result.state ? ai_keyboard::InputPhase::Pressed : ai_keyboard::InputPhase::Released,
-          0},
+          0,
+          snapshot.timestamp_ms,
+          snapshot.order_sequence},
          callback,
          context);
   }
@@ -170,9 +252,62 @@ void GpioInputScanner::process_input_snapshot(const InputEdgeSnapshot& snapshot,
     emit({ai_keyboard::InputId::EncoderPress,
           press_result.state ? ai_keyboard::InputPhase::Pressed
                              : ai_keyboard::InputPhase::Released,
-          0},
+          0,
+          snapshot.timestamp_ms,
+          snapshot.order_sequence},
          callback,
          context);
+  }
+}
+
+bool GpioInputScanner::next_transition_deadline_for_mask(
+    std::uint32_t active_mask,
+    std::uint32_t* deadline_ms) const {
+  if (deadline_ms == nullptr) {
+    return false;
+  }
+  bool armed = false;
+  std::uint32_t nearest = 0;
+  const auto add = [&](bool available, std::uint32_t candidate) {
+    if (!available) {
+      return;
+    }
+    if (!armed || static_cast<std::int32_t>(candidate - nearest) < 0) {
+      nearest = candidate;
+      armed = true;
+    }
+  };
+  for (std::size_t index = 0; index < key_debouncers_.size(); ++index) {
+    std::uint32_t candidate = 0;
+    const bool raw_pressed = (active_mask & (1UL << index)) != 0;
+    add(key_debouncers_[index].next_transition_deadline_ms(
+            raw_pressed, &candidate),
+        candidate);
+  }
+  std::uint32_t press_candidate = 0;
+  const bool encoder_pressed =
+      (active_mask & (1UL << ai_keyboard::kKeyPins.size())) != 0;
+  add(encoder_press_debouncer_.next_transition_deadline_ms(
+          encoder_pressed, &press_candidate),
+      press_candidate);
+  if (armed) {
+    *deadline_ms = nearest;
+  }
+  return armed;
+}
+
+void GpioInputScanner::process_debounce_deadlines_through(
+    std::uint32_t through_ms,
+    std::uint32_t active_mask,
+    InputEventCallback callback,
+    void* context) {
+  std::uint32_t deadline_ms = 0;
+  while (next_transition_deadline_for_mask(active_mask, &deadline_ms) &&
+         time_before_or_equal(deadline_ms, through_ms)) {
+    process_input_snapshot(
+        {deadline_ms, active_mask, observed_active_order_sequence_},
+        callback,
+        context);
   }
 }
 
@@ -193,13 +328,18 @@ std::uint32_t GpioInputScanner::recover_pressed_after_deep_sleep(
     // publish its later release.
     key_debouncers_[index].reset(true, now_ms);
     recovered_mask |= 1UL << index;
-    emit({kKeyInputs[index], ai_keyboard::InputPhase::Pressed, 0}, callback, context);
+    emit({kKeyInputs[index], ai_keyboard::InputPhase::Pressed, 0, now_ms},
+         callback,
+         context);
   }
 
   if (low_active_pressed(ai_keyboard::kEncoderPressPin)) {
     encoder_press_debouncer_.reset(true, now_ms);
     recovered_mask |= 1UL << ai_keyboard::kKeyPins.size();
-    emit({ai_keyboard::InputId::EncoderPress, ai_keyboard::InputPhase::Pressed, 0},
+    emit({ai_keyboard::InputId::EncoderPress,
+          ai_keyboard::InputPhase::Pressed,
+          0,
+          now_ms},
          callback,
          context);
   }
@@ -215,11 +355,8 @@ bool GpioInputScanner::activity_pending() const {
   const bool input_pending = pending_input_edges_ != 0 ||
                              pending_wake_edges_ != 0 ||
                              input_edge_queue_size_ != 0;
-  portEXIT_CRITICAL(&wake_mux_);
-
-  portENTER_CRITICAL(&encoder_mux_);
   const bool encoder_pending = !pending_encoder_steps_.empty();
-  portEXIT_CRITICAL(&encoder_mux_);
+  portEXIT_CRITICAL(&wake_mux_);
   if (input_pending || encoder_pending) {
     return true;
   }
@@ -317,14 +454,11 @@ InputDiagnostics GpioInputScanner::diagnostics() const {
   result.raw_edges = input_edge_count_;
   result.edge_queue_drops = input_edge_drop_count_;
   result.encoder_edges = encoder_edge_count_;
-  portEXIT_CRITICAL(&wake_mux_);
-
-  portENTER_CRITICAL(&encoder_mux_);
   result.encoder_steps = encoder_step_count_;
   result.encoder_invalid_transitions = encoder_decoder_.invalid_transition_count();
   result.encoder_partial_resets = encoder_decoder_.partial_reset_count();
   result.encoder_queue_drops = encoder_queue_drop_count_;
-  portEXIT_CRITICAL(&encoder_mux_);
+  portEXIT_CRITICAL(&wake_mux_);
 
   result.emitted_events = input_event_count_;
   result.filtered_transitions = filtered_transition_count_;
@@ -373,9 +507,18 @@ void GpioInputScanner::notify_task_from_isr() {
 }
 
 void GpioInputScanner::handle_input_edge_from_isr() {
-  const InputEdgeSnapshot snapshot{
-      static_cast<std::uint32_t>(esp_timer_get_time() / 1000), active_input_mask()};
   portENTER_CRITICAL_ISR(&wake_mux_);
+  // Timestamp, sequence and GPIO snapshot are captured under one shared ISR
+  // lock. Sequence order therefore cannot disagree with same-ms sampling
+  // order on the other CPU core.
+  InputEdgeSnapshot snapshot{
+      static_cast<std::uint32_t>(esp_timer_get_time() / 1000),
+      active_input_mask(),
+      0};
+  snapshot.order_sequence = next_input_order_sequence_++;
+  if (next_input_order_sequence_ == 0) {
+    next_input_order_sequence_ = 1;
+  }
   if (input_edge_queue_size_ == kInputEdgeQueueCapacity) {
     input_edge_queue_head_ = (input_edge_queue_head_ + 1) % kInputEdgeQueueCapacity;
     --input_edge_queue_size_;
@@ -387,8 +530,27 @@ void GpioInputScanner::handle_input_edge_from_isr() {
   ++input_edge_queue_size_;
   ++pending_input_edges_;
   ++input_edge_count_;
+  // Preserve the relative ordering of an encoder run on either side of this
+  // physical button/key edge, even when both runs have the same direction.
+  // The shared mux makes the fence atomic with encoder detent admission.
+  pending_encoder_steps_.break_coalescing();
   portEXIT_CRITICAL_ISR(&wake_mux_);
   notify_task_from_isr();
+}
+
+bool GpioInputScanner::peek_input_edge_snapshot(
+    InputEdgeSnapshot* snapshot) const {
+  if (snapshot == nullptr) {
+    return false;
+  }
+  portENTER_CRITICAL(&wake_mux_);
+  if (input_edge_queue_size_ == 0) {
+    portEXIT_CRITICAL(&wake_mux_);
+    return false;
+  }
+  *snapshot = input_edge_queue_[input_edge_queue_head_];
+  portEXIT_CRITICAL(&wake_mux_);
+  return true;
 }
 
 bool GpioInputScanner::take_input_edge_snapshot(InputEdgeSnapshot* snapshot) {
@@ -425,44 +587,67 @@ void GpioInputScanner::handle_wake_edge_from_isr() {
 
 void GpioInputScanner::handle_encoder_edge_from_isr() {
   portENTER_CRITICAL_ISR(&wake_mux_);
-  ++encoder_edge_count_;
-  portEXIT_CRITICAL_ISR(&wake_mux_);
-
+  const auto timestamp_ms =
+      static_cast<std::uint32_t>(esp_timer_get_time() / 1000);
   const std::uint8_t next_encoder_state = encoder_state();
+  ++encoder_edge_count_;
+  const auto order_sequence = next_input_order_sequence_++;
+  if (next_input_order_sequence_ == 0) {
+    next_input_order_sequence_ = 1;
+  }
   if (next_encoder_state == last_encoder_state_) {
+    portEXIT_CRITICAL_ISR(&wake_mux_);
     notify_task_from_isr();
     return;
   }
 
-  portENTER_CRITICAL_ISR(&encoder_mux_);
   const int raw_step = encoder_decoder_.update(next_encoder_state);
   last_encoder_state_ = next_encoder_state;
   if (raw_step != 0) {
     const int logical_step = raw_step * ai_keyboard::kEncoderDirectionMultiplier;
-    if (pending_encoder_steps_.push(logical_step)) {
+    if (pending_encoder_steps_.push(
+            logical_step, timestamp_ms, order_sequence)) {
       ++encoder_step_count_;
     } else {
       ++encoder_queue_drop_count_;
     }
   }
-  portEXIT_CRITICAL_ISR(&encoder_mux_);
+  portEXIT_CRITICAL_ISR(&wake_mux_);
   notify_task_from_isr();
 }
 
-bool GpioInputScanner::take_pending_encoder_steps(int* steps) {
-  portENTER_CRITICAL(&encoder_mux_);
-  const bool available = pending_encoder_steps_.pop(steps);
-  portEXIT_CRITICAL(&encoder_mux_);
+bool GpioInputScanner::peek_pending_encoder_steps(
+    ai_keyboard::EncoderStepRun* run) const {
+  portENTER_CRITICAL(&wake_mux_);
+  const bool available = pending_encoder_steps_.peek(run);
+  portEXIT_CRITICAL(&wake_mux_);
   return available;
 }
 
-void GpioInputScanner::emit(const InputEvent& event,
+bool GpioInputScanner::claim_pending_encoder_steps(
+    ai_keyboard::EncoderStepRun* run) {
+  portENTER_CRITICAL(&wake_mux_);
+  const bool available = pending_encoder_steps_.claim(run);
+  portEXIT_CRITICAL(&wake_mux_);
+  return available;
+}
+
+bool GpioInputScanner::take_pending_encoder_steps(
+    ai_keyboard::EncoderStepRun* run) {
+  portENTER_CRITICAL(&wake_mux_);
+  const bool available = pending_encoder_steps_.pop(run);
+  portEXIT_CRITICAL(&wake_mux_);
+  return available;
+}
+
+bool GpioInputScanner::emit(const InputEvent& event,
                             InputEventCallback callback,
                             void* context) {
-  ++input_event_count_;
-  if (callback != nullptr) {
-    callback(event, context);
+  if (callback != nullptr && !callback(event, context)) {
+    return false;
   }
+  ++input_event_count_;
+  return true;
 }
 
 }  // namespace easy_input

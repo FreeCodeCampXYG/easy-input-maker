@@ -90,6 +90,7 @@ FirmwareEvent event_for_action(const Action& action,
     case ActionKind::Settings:
       return command_event("settings", phase);
     case ActionKind::ScrollAxisToggle:
+    case ActionKind::TextCaretSelect:
       return {};
     case ActionKind::Disabled:
       return {};

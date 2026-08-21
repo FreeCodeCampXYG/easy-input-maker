@@ -27,6 +27,7 @@
 #include "keyboard/config_status.h"
 #include "keyboard/config_state.h"
 #include "keyboard/cold_boot_feedback.h"
+#include "keyboard/encoder_press_gesture.h"
 #include "keyboard/held_keyboard_state.h"
 #include "keyboard/hid_report_queue.h"
 #include "keyboard/keyboard_snapshot_delivery.h"
@@ -111,6 +112,7 @@ constexpr std::uint8_t kHidKeyArrowRight = 0x4F;
 constexpr std::uint8_t kHidKeyArrowLeft = 0x50;
 constexpr std::uint8_t kHidKeyArrowDown = 0x51;
 constexpr std::uint8_t kHidKeyArrowUp = 0x52;
+constexpr std::size_t kEncoderSelectionChordsPerFlush = 4;
 constexpr std::uint32_t kRetainedPowerCycleMagic = 0x50435943;
 constexpr std::uint16_t kRetainedPowerCycleVersion = 2;
 
@@ -215,9 +217,11 @@ struct AppContext {
   bool key_wake_verified = false;
   bool deep_sleep_wakeup_configured = false;
   bool audio_power_hold_active = false;
-  bool encoder_press_pending = false;
-  bool encoder_press_config_triggered = false;
-  std::uint32_t encoder_press_down_ms = 0;
+  ai_keyboard::EncoderPressGesture encoder_press_gesture;
+  ai_keyboard::MouseWheelQueue pending_encoder_text_selection_steps;
+  bool encoder_text_selection_active = false;
+  bool encoder_text_selection_exit_pending = false;
+  bool encoder_text_selection_chord_pending = false;
   ai_keyboard::PlatformSelectionController platform_selection;
   std::uint32_t last_encoder_led_feedback_ms = 0;
   ai_keyboard::MouseWheelQueue pending_wheel_reports;
@@ -252,7 +256,7 @@ struct AppContext {
   std::atomic<bool> status_refresh_pending{false};
 };
 
-void handle_input_event(const easy_input::InputEvent& event, void* context);
+bool handle_input_event(const easy_input::InputEvent& event, void* context);
 
 std::uint32_t millis() {
   return static_cast<std::uint32_t>(esp_timer_get_time() / 1000);
@@ -1043,6 +1047,16 @@ void handle_ptt_keyboard_audio(AppContext* app,
 }
 
 void toggle_encoder_scroll_axis(AppContext* app);
+bool flush_encoder_text_selection(AppContext* app);
+
+bool encoder_text_selection_owns_keyboard_transport(
+    const AppContext* app) {
+  return app != nullptr &&
+         (app->encoder_text_selection_active ||
+          app->encoder_text_selection_exit_pending ||
+          app->encoder_text_selection_chord_pending ||
+          !app->pending_encoder_text_selection_steps.empty());
+}
 
 const char* keyboard_transport_name(ai_keyboard::KeyboardTransportOwner owner) {
   switch (owner) {
@@ -1075,6 +1089,7 @@ void reconcile_keyboard_transport_lifetimes(AppContext* app) {
       app->ble.connected() && ble_epoch != 0;
   app->ble_transport_epoch =
       app->transport_ble_connected ? ble_epoch : 0;
+
   if (previous_ble_connected != app->transport_ble_connected ||
       previous_ble_epoch != app->ble_transport_epoch) {
     // Relative movement belongs to one concrete host lifetime. It has no
@@ -1090,6 +1105,15 @@ void reconcile_keyboard_transport_lifetimes(AppContext* app) {
           app->transport_ble_connected,
           app->ble_transport_epoch);
   if (keyboard_invalidated) {
+    if (encoder_text_selection_owns_keyboard_transport(app)) {
+      // A selection session that lost its exact host lifetime must not replay
+      // retained Shift+Arrow distance into a replacement host. Disconnect
+      // releases the old host's keyboard state, so leave the mode as well.
+      app->pending_encoder_text_selection_steps.clear();
+      app->encoder_text_selection_active = false;
+      app->encoder_text_selection_exit_pending = false;
+      app->encoder_text_selection_chord_pending = false;
+    }
     const auto held = app->held_keyboard.current();
     // The old endpoint can no longer consume a pending transition. Establish
     // the current physical state as the delivery baseline so no stale key-down
@@ -1195,7 +1219,9 @@ bool flush_pending_keyboard_snapshot(AppContext* app) {
              static_cast<unsigned long>(pending.generation));
     return false;
   }
-  app->keyboard_transport.commit_snapshot(pending.snapshot.empty());
+  app->keyboard_transport.commit_snapshot(
+      pending.snapshot.empty() &&
+      !encoder_text_selection_owns_keyboard_transport(app));
   return true;
 }
 
@@ -1409,6 +1435,27 @@ void dispatch_encoder_press_click(AppContext* app) {
     toggle_encoder_scroll_axis(app);
     return;
   }
+  if (action.kind == ai_keyboard::ActionKind::TextCaretSelect) {
+    if (app->encoder_text_selection_exit_pending) {
+      flush_encoder_text_selection(app);
+      if (app->encoder_text_selection_exit_pending) {
+        ESP_LOGD(kTag, "ENC_TEXT_SELECT new entry waits for prior chords");
+        return;
+      }
+    }
+    if (app->encoder_text_selection_active) {
+      app->encoder_text_selection_active = false;
+      app->encoder_text_selection_exit_pending = true;
+      flush_encoder_text_selection(app);
+      return;
+    }
+    app->encoder_text_selection_active = true;
+    app->encoder_text_selection_exit_pending = false;
+    app->encoder_text_selection_chord_pending = false;
+    app->pending_encoder_text_selection_steps.clear();
+    ESP_LOGI(kTag, "ENC_TEXT_SELECT entered native Shift+Arrow mode");
+    return;
+  }
 
   const auto press_event =
       ai_keyboard::event_for_action(action,
@@ -1439,6 +1486,104 @@ ai_keyboard::EncoderScrollAxis active_encoder_axis(AppContext* app,
     return app->encoder_scroll_axis;
   }
   return config.axis;
+}
+
+bool queue_encoder_text_selection_chord(AppContext* app, bool move_right) {
+  // A pending physical snapshot must establish the exact baseline before a
+  // synthetic tap can be appended. Returning false keeps the encoder distance
+  // in its bounded direction queue for a later retry.
+  if (!flush_pending_keyboard_snapshot(app) ||
+      app->keyboard_delivery.pending()) {
+    return false;
+  }
+  // Reconciliation above may have discovered that the exact selection owner
+  // disappeared and cleared the whole session. Do not let the already-copied
+  // queue head select a fresh host after that cancellation.
+  if (!encoder_text_selection_owns_keyboard_transport(app)) {
+    return false;
+  }
+
+  const auto source = move_right ? ai_keyboard::InputId::EncoderRight
+                                 : ai_keyboard::InputId::EncoderLeft;
+  const auto report = ai_keyboard::hid_report_for_hotkey(
+      move_right ? "Shift+ArrowRight" : "Shift+ArrowLeft");
+  const auto pressed = app->held_keyboard.press(source, report);
+  if (!pressed.accepted()) {
+    ESP_LOGD(kTag,
+             "ENC_TEXT_SELECT chord waits for keyboard capacity status=%u",
+             static_cast<unsigned>(pressed.status));
+    return false;
+  }
+  const auto restored = app->held_keyboard.release(source);
+  if (!restored.accepted()) {
+    ESP_LOGE(kTag, "ENC_TEXT_SELECT failed to restore logical keyboard state");
+    return false;
+  }
+
+  // If the exact Shift+Arrow chord is already physically held, adding and
+  // removing the encoder source cannot create a new HID transition. Consume
+  // the detent as a safe no-op instead of perturbing the user's held keys.
+  if (!pressed.report_changed) {
+    return true;
+  }
+
+  app->encoder_text_selection_chord_pending = true;
+  if (!send_keyboard_snapshot(
+          app, pressed.snapshot, ai_keyboard::HidReportClass::KeyboardPress)) {
+    return false;
+  }
+  app->keyboard_transport.commit_snapshot(false);
+
+  const auto release_class = restored.snapshot.empty()
+                                 ? ai_keyboard::HidReportClass::KeyboardAllReleased
+                                 : ai_keyboard::HidReportClass::KeyboardRelease;
+  if (!send_keyboard_snapshot(app, restored.snapshot, release_class)) {
+    // KeyboardPress admission reserves room for its matching release. The only
+    // expected failure here is an owner lifetime loss; reconciliation will
+    // discard this chord before any fresh host can receive it.
+    ESP_LOGW(kTag, "ENC_TEXT_SELECT release rejected after accepted press");
+    return false;
+  }
+  // Keep the exact host latched across detents and across unrelated physical
+  // key taps until the selection mode has drained and exited. Otherwise a USB
+  // mount between two detents could split one logical selection across hosts.
+  app->keyboard_transport.commit_snapshot(false);
+  app->encoder_text_selection_chord_pending = false;
+  return true;
+}
+
+bool flush_encoder_text_selection(AppContext* app) {
+  for (std::size_t sent = 0;
+       sent < kEncoderSelectionChordsPerFlush;
+       ++sent) {
+    ai_keyboard::QueuedMouseWheel steps;
+    if (!app->pending_encoder_text_selection_steps.front(&steps)) {
+      if (app->encoder_text_selection_exit_pending) {
+        app->encoder_text_selection_exit_pending = false;
+        if (app->held_keyboard.empty() &&
+            !app->keyboard_delivery.pending()) {
+          app->keyboard_transport.commit_snapshot(true);
+        }
+        ESP_LOGI(kTag, "ENC_TEXT_SELECT exited after draining native chords");
+      }
+      return true;
+    }
+
+    const int direction = (steps.horizontal > 0) - (steps.horizontal < 0);
+    if (direction == 0) {
+      app->pending_encoder_text_selection_steps.pop_if_sequence(steps.sequence);
+      continue;
+    }
+    if (!queue_encoder_text_selection_chord(app, direction > 0)) {
+      return false;
+    }
+    if (!app->pending_encoder_text_selection_steps.consume_if_sequence(
+            steps.sequence, 0, direction)) {
+      ESP_LOGE(kTag, "ENC_TEXT_SELECT pending chord consume failed");
+      return false;
+    }
+  }
+  return app->pending_encoder_text_selection_steps.empty();
 }
 
 void release_keyboard_reports(AppContext* app) {
@@ -1614,7 +1759,10 @@ ai_keyboard::PowerPolicyInputs power_policy_inputs(AppContext* app,
                                                    std::uint32_t now_ms) {
   auto inputs = base_power_policy_inputs(app, now_ms);
   inputs.config_window_active = app->ble.config_window_active();
-  inputs.encoder_press_pending = app->encoder_press_pending;
+  inputs.encoder_press_pending = app->encoder_press_gesture.pending() ||
+                                 app->encoder_text_selection_exit_pending ||
+                                 app->encoder_text_selection_chord_pending ||
+                                 !app->pending_encoder_text_selection_steps.empty();
   inputs.wheel_report_pending = has_pending_wheel_report(app);
   inputs.management_work_pending =
       app->status_refresh_pending.load(std::memory_order_acquire) ||
@@ -1973,18 +2121,94 @@ void dispatch_encoder_cursor(AppContext* app,
   tap_keyboard_keycode(app, event.input, keycode, taps);
 }
 
-void dispatch_encoder_rotation(AppContext* app, const easy_input::InputEvent& event) {
+bool dispatch_encoder_text_selection_step(
+    AppContext* app,
+    const easy_input::InputEvent& event,
+    ai_keyboard::EncoderScrollAxis axis) {
+  const bool clockwise = event.encoder_step < 0;
+  const int delta = (clockwise ? 1 : -1) *
+                    encoder_step_count(event.encoder_step);
+  flush_encoder_text_selection(app);
+  if (!app->encoder_text_selection_active) {
+    // Owner loss cancels this sampled detent as part of the old selection
+    // session. Consume the source event without reinterpreting it as a normal
+    // cursor move or retaining it for a replacement host.
+    return true;
+  }
+  bool saturated = false;
+  constexpr bool split_on_saturation = true;
+  const auto retain_steps = [&]() {
+    return app->pending_encoder_text_selection_steps.push(
+        0,
+        delta,
+        event.timestamp_ms,
+        nullptr,
+        nullptr,
+        &saturated,
+        {},
+        0,
+        split_on_saturation);
+  };
+  bool retained = retain_steps();
+  if (!retained) {
+    flush_encoder_text_selection(app);
+    retained = retain_steps();
+  }
+  if (!retained) {
+    ESP_LOGD(kTag,
+             "ENC_TEXT_SELECT source retained for retry axis=%s delta=%d",
+             encoder_scroll_axis_name(axis),
+             delta);
+    return false;
+  }
+  flush_encoder_text_selection(app);
+  const auto feedback_y = static_cast<std::int8_t>(
+      axis == ai_keyboard::EncoderScrollAxis::Vertical
+          ? (delta > 0) - (delta < 0)
+          : 0);
+  const auto feedback_x = static_cast<std::int8_t>(
+      axis == ai_keyboard::EncoderScrollAxis::Horizontal
+          ? (delta > 0) - (delta < 0)
+          : 0);
+  show_encoder_scroll_feedback(app, feedback_y, feedback_x, millis());
+  ESP_LOGD(kTag,
+           "ENC_TEXT_SELECT axis=%s delta=%d transport=%s retained=%u saturated=%u",
+           encoder_scroll_axis_name(axis),
+           delta,
+           keyboard_transport_name(app->keyboard_transport.owner()),
+           retained ? 1U : 0U,
+           saturated ? 1U : 0U);
+  return true;
+}
+
+bool dispatch_encoder_rotation(AppContext* app, const easy_input::InputEvent& event) {
+  if (!app->encoder_text_selection_active &&
+      encoder_text_selection_owns_keyboard_transport(app)) {
+    flush_encoder_text_selection(app);
+    if (encoder_text_selection_owns_keyboard_transport(app)) {
+      // Preserve source order: a post-exit cursor/scroll detent must not pass
+      // pre-exit Shift+Arrow distance that is still transport-backpressured.
+      return false;
+    }
+  }
   const auto& config = app->config_state.encoder_scroll();
   if (!config.enabled) {
-    return;
+    return true;
   }
 
   const auto axis = active_encoder_axis(app, config);
   if (config.mode == ai_keyboard::EncoderRotationMode::Cursor) {
+    const auto& press_action = app->config_state.keymap().action_for(
+        ai_keyboard::InputId::EncoderPress);
+    if (press_action.kind == ai_keyboard::ActionKind::TextCaretSelect &&
+        app->encoder_text_selection_active) {
+      return dispatch_encoder_text_selection_step(app, event, axis);
+    }
     dispatch_encoder_cursor(app, event, axis);
-    return;
+    return true;
   }
   dispatch_encoder_scroll(app, event, axis);
+  return true;
 }
 
 void toggle_encoder_scroll_axis(AppContext* app) {
@@ -2003,37 +2227,55 @@ void sync_encoder_scroll_axis(AppContext* app) {
   app->encoder_scroll_axis = axis == ai_keyboard::EncoderScrollAxis::Horizontal
                                  ? ai_keyboard::EncoderScrollAxis::Horizontal
                                  : ai_keyboard::EncoderScrollAxis::Vertical;
+  const auto& press_action = app->config_state.keymap().action_for(
+      ai_keyboard::InputId::EncoderPress);
+  if ((press_action.kind != ai_keyboard::ActionKind::TextCaretSelect ||
+       app->config_state.encoder_scroll().mode !=
+           ai_keyboard::EncoderRotationMode::Cursor) &&
+      (app->encoder_text_selection_active ||
+       !app->pending_encoder_text_selection_steps.empty())) {
+    app->encoder_text_selection_active = false;
+    app->encoder_text_selection_exit_pending = true;
+    flush_encoder_text_selection(app);
+  }
 }
 
-void check_encoder_press_config_hold(AppContext* app, std::uint32_t now_ms) {
-  if (!app->encoder_press_pending || app->encoder_press_config_triggered) {
-    return;
-  }
-  if (!app->inputs.low_active_pressed(ai_keyboard::kEncoderPressPin)) {
-    return;
-  }
-  if (now_ms - app->encoder_press_down_ms < kEncoderConfigModeHoldMs) {
+void check_encoder_press_config_hold(AppContext* app,
+                                     std::uint32_t observed_ms,
+                                     std::uint32_t effect_now_ms,
+                                     bool encoder_press_observed) {
+  if (!app->encoder_press_gesture.trigger_config_if_due(
+          observed_ms,
+          kEncoderConfigModeHoldMs,
+          encoder_press_observed)) {
     return;
   }
 
-  app->encoder_press_config_triggered = true;
-  app->platform_selection.arm(now_ms, kPlatformSelectionModeTimeoutMs);
+  if (app->encoder_text_selection_active ||
+      !app->pending_encoder_text_selection_steps.empty()) {
+    app->encoder_text_selection_active = false;
+    app->encoder_text_selection_exit_pending = true;
+    flush_encoder_text_selection(app);
+  }
+
+  app->platform_selection.arm(effect_now_ms, kPlatformSelectionModeTimeoutMs);
   app->ble.open_config_window("encoder_long_press");
-  app->leds.show_status_event(easy_input::StatusLedEvent::ConfigMode, now_ms);
+  app->leds.show_status_event(
+      easy_input::StatusLedEvent::ConfigMode, effect_now_ms);
   ESP_LOGI(kTag,
            "CONFIG mode opened by encoder long press hold_ms=%lu",
-           static_cast<unsigned long>(now_ms - app->encoder_press_down_ms));
+           static_cast<unsigned long>(kEncoderConfigModeHoldMs));
   // 状态特征只回吐最后一次发布的缓存;长按进配置模式时发布一份实时快照,
   // 让 App 在无串口环境下读到音频/控制通道与省电门控的完整诊断。
   const char* deep_sleep_block = "unknown";
-  deep_sleep_allowed(app, now_ms, &deep_sleep_block);
+  deep_sleep_allowed(app, effect_now_ms, &deep_sleep_block);
   std::array<char, 120> diag_status{};
   std::snprintf(diag_status.data(),
                 diag_status.size(),
                 "%s ds=%s state=awake up=%lus vin=%d chrg=%d",
                 app->audio.capture_status().c_str(),
                 deep_sleep_block,
-                static_cast<unsigned long>(now_ms / 1000U),
+                static_cast<unsigned long>(effect_now_ms / 1000U),
                 read_optional_gpio(ai_keyboard::kExternalPowerSensePin),
                 read_optional_gpio(ai_keyboard::kChargeStatusPin));
   publish_config_status(app, "diag", diag_status.data(), 0, 0, true);
@@ -2559,6 +2801,8 @@ bool speaker_asset_resource_steps_allowed(
       app->speaker.busy() || app->inputs.any_input_active() ||
       !app->held_keyboard.empty() ||
       app->keyboard_delivery.pending() ||
+      app->encoder_text_selection_chord_pending ||
+      !app->pending_encoder_text_selection_steps.empty() ||
       app->ble.input_reports_pending() ||
       has_pending_wheel_report(app) ||
       (app->last_input_ms != 0U &&
@@ -2586,10 +2830,10 @@ void flush_input_led_feedback(AppContext* app) {
   app->leds.show_input_event(input, phase, queued_ms);
 }
 
-void handle_input_event(const easy_input::InputEvent& event, void* context) {
+bool handle_input_event(const easy_input::InputEvent& event, void* context) {
   auto* app = static_cast<AppContext*>(context);
   if (app == nullptr) {
-    return;
+    return true;
   }
 
   const auto now = millis();
@@ -2628,33 +2872,36 @@ void handle_input_event(const easy_input::InputEvent& event, void* context) {
   }
 
   if (encoder_turn) {
+    // Resolve the 3-second boundary before interpreting this detent, but only
+    // while the physical switch is still down. A release that is settling must
+    // never be converted into system configuration merely because the user
+    // started turning immediately afterwards. Text selection itself is a
+    // short-press toggle and never depends on holding while turning.
+    check_encoder_press_config_hold(
+        app,
+        event.timestamp_ms,
+        now,
+        app->inputs.low_active_pressed(ai_keyboard::kEncoderPressPin));
     if (app->platform_selection.active()) {
       ESP_LOGI(kTag, "%s consumed while awaiting platform selection", name);
-      return;
+      return true;
     }
-    dispatch_encoder_rotation(app, event);
-    return;
+    return dispatch_encoder_rotation(app, event);
   }
 
   if (event.input == ai_keyboard::InputId::EncoderPress) {
     if (event.phase == ai_keyboard::InputPhase::Pressed) {
-      app->encoder_press_pending = true;
-      app->encoder_press_config_triggered = false;
-      app->encoder_press_down_ms = now;
-      return;
+      app->encoder_press_gesture.press(event.timestamp_ms);
+      return true;
     }
 
-    const bool should_dispatch_click =
-        app->encoder_press_pending && !app->encoder_press_config_triggered;
-    app->encoder_press_pending = false;
-    app->encoder_press_config_triggered = false;
-    app->encoder_press_down_ms = 0;
-    if (should_dispatch_click) {
+    const auto release = app->encoder_press_gesture.release();
+    if (release.dispatch_click) {
       dispatch_encoder_press_click(app);
-    } else {
+    } else if (release.ignored_after_config) {
       ESP_LOGI(kTag, "ENC_PRESS release ignored after config mode long press");
     }
-    return;
+    return true;
   }
   const auto platform_result =
       app->platform_selection.handle_event(event.input, event.phase, now);
@@ -2664,7 +2911,7 @@ void handle_input_event(const easy_input::InputEvent& event, void* context) {
     ESP_LOGI(kTag, "%s %s consumed by platform selection",
              name,
              phase_name(event.phase));
-    return;
+    return true;
   }
 
   const auto& action = app->config_state.keymap().action_for(event.input);
@@ -2676,6 +2923,7 @@ void handle_input_event(const easy_input::InputEvent& event, void* context) {
                                     app->config_state.target_platform());
   handle_ptt_keyboard_audio(app, action, event.phase, name);
   dispatch_firmware_event(app, event.input, firmware_event);
+  return true;
 }
 
 void load_stored_config(AppContext* app) {
@@ -3151,11 +3399,14 @@ ai_keyboard::AwakeWaitDecision plan_next_awake_work(AppContext* app,
       app->usb_physical_presence.next_update_deadline_ms(&deadline_ms);
   planner.add_deadline(usb_presence_deadline, deadline_ms, "usb_presence");
 
-  if (app->encoder_press_pending && !app->encoder_press_config_triggered) {
-    planner.add_deadline(true,
-                         app->encoder_press_down_ms + kEncoderConfigModeHoldMs,
-                         "encoder_hold");
-  }
+  deadline_ms = 0;
+  const bool encoder_hold_deadline =
+      app->encoder_press_gesture.config_deadline(
+          kEncoderConfigModeHoldMs, &deadline_ms);
+  planner.add_deadline(
+      encoder_hold_deadline,
+      deadline_ms,
+      "encoder_hold");
   deadline_ms = 0;
   const bool platform_deadline =
       app->platform_selection.next_deadline_ms(&deadline_ms);
@@ -3477,6 +3728,10 @@ extern "C" void app_main(void) {
     // can otherwise strand a Preparing Boot job.
     app.usb.poll_pending_reports();
     app.ble.poll_input_delivery(millis());
+    // Progress native Shift+Arrow chords even without a new input edge. A
+    // rejected source run remains retained by the scanner until a complete
+    // press/restore pair can enter the exact-owner keyboard FIFO in order.
+    flush_encoder_text_selection(&app);
     // Polling may have freed a bounded transport slot. Retry the coalesced
     // latest full keyboard state and every stateful App hotkey transition once
     // per loop, outside the input callback.
@@ -3505,7 +3760,12 @@ extern "C" void app_main(void) {
     // Apply config above and deliver physical input first. A status request
     // arriving with the final config chunk must observe the new saved state.
     process_pending_status_refresh(&app, millis());
-    check_encoder_press_config_hold(&app, millis());
+    const auto encoder_hold_now = millis();
+    check_encoder_press_config_hold(
+        &app,
+        encoder_hold_now,
+        encoder_hold_now,
+        app.inputs.low_active_pressed(ai_keyboard::kEncoderPressPin));
     const auto platform_selection_now = millis();
     handle_platform_selection_result(
         &app,

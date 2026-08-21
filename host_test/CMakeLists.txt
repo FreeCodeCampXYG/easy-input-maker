@@ -40,6 +40,7 @@ add_library(easy_input_keyboard_core
   ../components/keyboard/src/debounce.cpp
   ../components/keyboard/src/diagnostic_command.cpp
   ../components/keyboard/src/encoder.cpp
+  ../components/keyboard/src/encoder_press_gesture.cpp
   ../components/keyboard/src/held_keyboard_state.cpp
   ../components/keyboard/src/hid_report_queue.cpp
   ../components/keyboard/src/hid_keycode.cpp
@@ -101,6 +102,7 @@ add_keyboard_host_test(config_status_tests)
 add_keyboard_host_test(debounce_tests)
 add_keyboard_host_test(diagnostic_command_tests)
 add_keyboard_host_test(encoder_tests)
+add_keyboard_host_test(encoder_press_gesture_tests)
 add_keyboard_host_test(firmware_source_contract_tests)
 target_compile_definitions(
   firmware_source_contract_tests

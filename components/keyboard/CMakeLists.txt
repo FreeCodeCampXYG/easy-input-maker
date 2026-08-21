@@ -18,6 +18,7 @@ idf_component_register(
     "src/debounce.cpp"
     "src/diagnostic_command.cpp"
     "src/encoder.cpp"
+    "src/encoder_press_gesture.cpp"
     "src/held_keyboard_state.cpp"
     "src/hid_report_queue.cpp"
     "src/hid_keycode.cpp"

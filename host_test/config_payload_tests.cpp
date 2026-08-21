@@ -40,6 +40,58 @@ std::string payload_with_fixed_text(const std::string& text) {
   })";
 }
 
+std::string payload_with_string_action(const std::string& action) {
+  return std::string(R"({
+    "schema":"ai_keyboard.v1",
+    "audio_enabled":false,
+    "profiles":[{
+      "id":"default",
+      "keys":{
+        "KEY1":{"press":")") + action + R"("},
+        "KEY2":{"press":"disabled"},
+        "KEY3":{"press":"disabled"},
+        "KEY4":{"press":"disabled"},
+        "KEY5":{"press":"disabled"},
+        "KEY6":{"press":"disabled"},
+        "KEY7":{"press":"disabled"},
+        "KEY8":{"press":"disabled"}
+      },
+      "encoder":{
+        "left":"disabled",
+        "right":"disabled",
+        "press":"disabled"
+      }
+    }]
+  })";
+}
+
+std::string payload_with_encoder_press(const std::string& action,
+                                       const std::string& mode) {
+  return std::string(R"({
+    "schema":"ai_keyboard.v1",
+    "profiles":[{
+      "id":"default",
+      "keys":{
+        "KEY1":{"press":"disabled"},
+        "KEY2":{"press":"disabled"},
+        "KEY3":{"press":"disabled"},
+        "KEY4":{"press":"disabled"},
+        "KEY5":{"press":"disabled"},
+        "KEY6":{"press":"disabled"},
+        "KEY7":{"press":"disabled"},
+        "KEY8":{"press":"disabled"}
+      },
+      "encoder":{
+        "left":"disabled",
+        "right":"disabled",
+        "press":")") + action + R"(",
+        "scroll":{"enabled":true,"mode":")" + mode +
+         R"(","axis":"horizontal","speed":3}
+      }
+    }]
+  })";
+}
+
 std::string payload_with_extra_top_fields(
     const std::string& fields) {
   auto payload = payload_with_fixed_text("test");
@@ -448,6 +500,29 @@ void rejects_unknown_named_action() {
   assert(result.status == ConfigParseStatus::UnknownAction);
 }
 
+void text_caret_selection_requires_cursor_mode_and_encoder_press() {
+  const auto valid = ai_keyboard::parse_config_payload(
+      payload_with_encoder_press("text_caret_select", "cursor"));
+  assert(valid.status == ConfigParseStatus::Ok);
+  assert(valid.config.encoder_scroll.mode == EncoderRotationMode::Cursor);
+  assert(valid.config.keymap.action_for(InputId::EncoderPress).kind ==
+         ActionKind::TextCaretSelect);
+
+  const auto legacy = ai_keyboard::parse_config_payload(
+      payload_with_encoder_press("mouse_drag_select", "cursor"));
+  assert(legacy.status == ConfigParseStatus::Ok);
+  assert(legacy.config.keymap.action_for(InputId::EncoderPress).kind ==
+         ActionKind::TextCaretSelect);
+
+  const auto wrong_mode = ai_keyboard::parse_config_payload(
+      payload_with_encoder_press("text_caret_select", "scroll"));
+  assert(wrong_mode.status == ConfigParseStatus::UnknownAction);
+
+  const auto wrong_slot = ai_keyboard::parse_config_payload(
+      payload_with_string_action("text_caret_select"));
+  assert(wrong_slot.status == ConfigParseStatus::UnknownAction);
+}
+
 void accepts_fixed_text_at_the_960_utf8_byte_limit() {
   static_assert(ai_keyboard::kFixedTextMaxUtf8Bytes == 960);
   std::string text;
@@ -538,6 +613,7 @@ int main() {
   parses_paired_speaker_sync_credentials();
   rejects_unpaired_or_invalid_speaker_sync_credentials();
   rejects_unknown_named_action();
+  text_caret_selection_requires_cursor_mode_and_encoder_press();
   accepts_fixed_text_at_the_960_utf8_byte_limit();
   rejects_fixed_text_above_the_960_utf8_byte_limit();
   decodes_escaped_bmp_and_surrogate_pair_as_utf8();

@@ -40,6 +40,7 @@ enum class ActionKind {
   NextProfile,
   Settings,
   ScrollAxisToggle,
+  TextCaretSelect,
   SelectAll,
   Copy,
   Paste,

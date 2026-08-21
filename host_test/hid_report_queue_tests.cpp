@@ -263,6 +263,20 @@ void test_app_commands_leave_room_for_physical_presses_and_releases() {
   assert(queue.size() == ai_keyboard::kHidReportQueueCapacity);
 }
 
+void test_encoder_selection_steps_are_chunked_without_loss() {
+  ai_keyboard::MouseWheelQueue pending_distance;
+  assert(pending_distance.push(0, 16 * 8, 100));
+
+  ai_keyboard::QueuedMouseWheel movement;
+  assert(pending_distance.front(&movement));
+  assert(movement.horizontal == 128);
+  assert(pending_distance.consume_if_sequence(movement.sequence, 0, 127));
+  assert(pending_distance.front(&movement));
+  assert(movement.horizontal == 1);
+  assert(pending_distance.consume_if_sequence(movement.sequence, 0, 1));
+  assert(pending_distance.empty());
+}
+
 void test_mouse_wheel_queue_preserves_reversal_order() {
   ai_keyboard::MouseWheelQueue queue;
   bool coalesced = false;
@@ -328,6 +342,42 @@ void test_mouse_wheel_queue_saturates_without_overflow_and_stays_bounded() {
   assert(queue.size() == ai_keyboard::kMouseWheelQueueCapacity);
   assert(!queue.push(1, 0, 100));
   assert(queue.size() == ai_keyboard::kMouseWheelQueueCapacity);
+}
+
+void test_encoder_selection_steps_split_instead_of_saturating() {
+  ai_keyboard::MouseWheelQueue queue;
+  bool coalesced = false;
+  bool saturated = false;
+  assert(queue.push(0,
+                    32760,
+                    1,
+                    nullptr,
+                    &coalesced,
+                    &saturated,
+                    {},
+                    7,
+                    true));
+  assert(!coalesced);
+  assert(!saturated);
+  assert(queue.push(0,
+                    16,
+                    2,
+                    nullptr,
+                    &coalesced,
+                    &saturated,
+                    {},
+                    7,
+                    true));
+  assert(!coalesced);
+  assert(!saturated);
+  assert(queue.size() == 2);
+
+  ai_keyboard::QueuedMouseWheel report;
+  assert(queue.front(&report));
+  assert(report.horizontal == 32760);
+  assert(queue.pop_if_sequence(report.sequence));
+  assert(queue.front(&report));
+  assert(report.horizontal == 16);
 }
 
 void test_ble_owner_generation_is_preserved_and_never_coalesced_across_lifetimes() {
@@ -447,9 +497,11 @@ int main() {
   test_classified_snapshots_reserve_all_release_transitions_in_order();
   test_classified_snapshot_coalescing_and_validation();
   test_app_commands_leave_room_for_physical_presses_and_releases();
+  test_encoder_selection_steps_are_chunked_without_loss();
   test_mouse_wheel_queue_preserves_reversal_order();
   test_mouse_wheel_queue_keeps_axes_and_rejects_invalid_consumption();
   test_mouse_wheel_queue_saturates_without_overflow_and_stays_bounded();
+  test_encoder_selection_steps_split_instead_of_saturating();
   test_ble_owner_generation_is_preserved_and_never_coalesced_across_lifetimes();
   test_usb_epoch_is_preserved_and_never_coalesced_across_lifetimes();
   return 0;

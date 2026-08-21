@@ -131,7 +131,6 @@ class HidReportQueue {
                                      bool coalesce_keyboard_snapshot,
                                      BleOwnerToken ble_owner,
                                      std::uint32_t usb_epoch);
-
   std::array<QueuedHidReport, kHidReportQueueCapacity> reports_{};
   std::size_t head_ = 0;
   std::size_t size_ = 0;
@@ -159,7 +158,8 @@ class MouseWheelQueue {
             bool* coalesced = nullptr,
             bool* saturated = nullptr,
             BleOwnerToken ble_owner = {},
-            std::uint32_t usb_epoch = 0);
+            std::uint32_t usb_epoch = 0,
+            bool split_on_saturation = false);
   bool front(QueuedMouseWheel* out) const;
   bool consume_if_sequence(std::uint32_t sequence, int vertical, int horizontal);
   bool pop_if_sequence(std::uint32_t sequence);

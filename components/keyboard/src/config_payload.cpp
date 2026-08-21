@@ -530,6 +530,9 @@ std::optional<ActionKind> named_action_kind(const std::string& action) {
   if (action == "scroll_axis_toggle") {
     return ActionKind::ScrollAxisToggle;
   }
+  if (action == "text_caret_select" || action == "mouse_drag_select") {
+    return ActionKind::TextCaretSelect;
+  }
   if (action == "select_all") return ActionKind::SelectAll;
   if (action == "copy") return ActionKind::Copy;
   if (action == "paste") return ActionKind::Paste;
@@ -963,6 +966,21 @@ ConfigParseResult parse_config_payload(const std::string& json_storage) {
   const auto scroll_status = parse_encoder_scroll_config(*encoder, &result.config.encoder_scroll);
   if (scroll_status != ConfigParseStatus::Ok) {
     result.status = scroll_status;
+    return result;
+  }
+
+  for (std::size_t index = 0;
+       index < static_cast<std::size_t>(InputId::EncoderPress);
+       ++index) {
+    if (actions[index].kind == ActionKind::TextCaretSelect) {
+      result.status = ConfigParseStatus::UnknownAction;
+      return result;
+    }
+  }
+  if (actions[input_index(InputId::EncoderPress)].kind ==
+          ActionKind::TextCaretSelect &&
+      result.config.encoder_scroll.mode != EncoderRotationMode::Cursor) {
+    result.status = ConfigParseStatus::UnknownAction;
     return result;
   }
 

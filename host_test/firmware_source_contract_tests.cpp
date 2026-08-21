@@ -1115,7 +1115,7 @@ void speaker_probe_is_default_off_and_outside_input_hot_path() {
   const auto speaker_output =
       read_source("main/platform/speaker_output.cpp");
   const auto input_handler = section(app_main,
-                                     "void handle_input_event(const easy_input::InputEvent& event, void* context) {",
+        "bool handle_input_event(const easy_input::InputEvent& event, void* context) {",
                                      "void load_stored_config");
   const auto speaker_boot = section(
       app_main,
@@ -1221,7 +1221,7 @@ void speaker_opus_probe_is_conditional_fixed_and_reusable() {
       "diagnostics/speaker_opus_probe/assets/easyinput_boot_probe.ogg");
   const auto input_handler = section(
       app_main,
-      "void handle_input_event(const easy_input::InputEvent& event, void* context) {",
+        "bool handle_input_event(const easy_input::InputEvent& event, void* context) {",
       "void load_stored_config");
 
   const auto option = section(
@@ -1343,7 +1343,7 @@ void speaker_ima_probe_is_conditional_allocation_free_and_isolated() {
   const auto app_main = read_source("main/app_main.cpp");
   const auto input_handler = section(
       app_main,
-      "void handle_input_event(const easy_input::InputEvent& event, void* context) {",
+        "bool handle_input_event(const easy_input::InputEvent& event, void* context) {",
       "void load_stored_config");
 
   const auto option = section(
@@ -1503,7 +1503,7 @@ void speaker_asset_storage_reserves_exact_banks_and_has_production_gate() {
       read_source("components/keyboard/src/config_state.cpp");
   const auto input_handler = section(
       app_main,
-      "void handle_input_event(const easy_input::InputEvent& event, void* context) {",
+        "bool handle_input_event(const easy_input::InputEvent& event, void* context) {",
       "void load_stored_config");
   const auto option = section(
       root_cmake,
@@ -2417,7 +2417,7 @@ void awake_owner_waits_for_notifications_and_business_deadlines() {
 
   const auto input_handler = section(
       app_main,
-      "void handle_input_event(",
+        "bool handle_input_event(",
       "void load_stored_config(");
   assert(input_handler.find(
              "mark_user_activity(app, now, \"debounced_input\")") !=
@@ -2980,6 +2980,216 @@ void speaker_asset_wifi_admission_owns_ingress_power_and_listener_epoch() {
   assert(client_close < listener_retire);
 }
 
+void encoder_text_caret_selection_uses_native_keyboard_chords() {
+  const auto app_main = read_source("main/app_main.cpp");
+  const auto usb = read_source("main/platform/usb_hid.cpp");
+  const auto ble = read_source("main/platform/ble_hid.cpp");
+  const auto gpio_header = read_source("main/platform/gpio_keys.h");
+  const auto gpio_source = read_source("main/platform/gpio_keys.cpp");
+
+  const auto click = section(
+      app_main,
+      "void dispatch_encoder_press_click(AppContext* app)",
+      "ai_keyboard::EncoderScrollAxis active_encoder_axis(");
+  assert(click.find("ActionKind::TextCaretSelect") != std::string::npos);
+  assert(click.find("encoder_text_selection_active = true") !=
+         std::string::npos);
+  assert(click.find("encoder_text_selection_active = false") !=
+         std::string::npos);
+  assert(click.find("encoder_text_selection_exit_pending = true") !=
+         std::string::npos);
+  assert(click.find("flush_encoder_text_selection(app)") != std::string::npos);
+
+  const auto chord = section(
+      app_main,
+      "bool queue_encoder_text_selection_chord(",
+      "bool flush_encoder_text_selection(");
+  assert(chord.find("Shift+ArrowRight") != std::string::npos);
+  assert(chord.find("Shift+ArrowLeft") != std::string::npos);
+  const auto baseline_flush = chord.find("flush_pending_keyboard_snapshot(app)");
+  const auto owner_recheck = chord.find(
+      "!encoder_text_selection_owns_keyboard_transport(app)",
+      baseline_flush);
+  const auto press_source = chord.find("held_keyboard.press(source, report)");
+  const auto release_source = chord.find("held_keyboard.release(source)");
+  const auto send_press = chord.find("HidReportClass::KeyboardPress");
+  const auto send_release = chord.find("send_keyboard_snapshot(", send_press);
+  assert(press_source != std::string::npos);
+  assert(baseline_flush != std::string::npos);
+  assert(owner_recheck != std::string::npos);
+  assert(release_source != std::string::npos);
+  assert(send_press != std::string::npos);
+  assert(send_release != std::string::npos);
+  assert(press_source < release_source);
+  assert(baseline_flush < owner_recheck);
+  assert(owner_recheck < press_source);
+  assert(release_source < send_press);
+  assert(chord.find("HidReportClass::KeyboardRelease") != std::string::npos);
+  assert(chord.find("HidReportClass::KeyboardAllReleased") !=
+         std::string::npos);
+  assert(chord.find("keyboard_transport.commit_snapshot(false)") !=
+         std::string::npos);
+  assert(chord.find("Keep the exact host latched across detents") !=
+         std::string::npos);
+
+  const auto flush = section(
+      app_main,
+      "bool flush_encoder_text_selection(AppContext* app)",
+      "void release_keyboard_reports(");
+  const auto queue_front = flush.find("pending_encoder_text_selection_steps.front");
+  const auto queue_chord =
+      flush.find("queue_encoder_text_selection_chord", queue_front);
+  const auto queue_consume = flush.find("consume_if_sequence(");
+  assert(queue_front != std::string::npos);
+  assert(queue_chord != std::string::npos);
+  assert(queue_consume != std::string::npos);
+  assert(queue_front < queue_chord);
+  assert(queue_chord < queue_consume);
+  assert(flush.find("kEncoderSelectionChordsPerFlush") != std::string::npos);
+  assert(flush.find("keyboard_transport.commit_snapshot(true)") !=
+         std::string::npos);
+
+  const auto transport_reconcile = section(
+      app_main,
+      "void reconcile_keyboard_transport_lifetimes(AppContext* app)",
+      "bool send_keyboard_snapshot(");
+  assert(transport_reconcile.find(
+             "encoder_text_selection_owns_keyboard_transport(app)") !=
+         std::string::npos);
+  assert(transport_reconcile.find(
+             "pending_encoder_text_selection_steps.clear()") !=
+         std::string::npos);
+
+  assert(gpio_header.find("std::uint32_t timestamp_ms = 0") !=
+         std::string::npos);
+  assert(gpio_header.find("std::uint32_t order_sequence = 0") !=
+         std::string::npos);
+  assert(gpio_header.find("using InputEventCallback = bool (*)") !=
+         std::string::npos);
+  const auto input_poll = section(
+      gpio_source,
+      "void GpioInputScanner::poll(",
+      "void GpioInputScanner::process_input_snapshot(");
+  const auto peek_input = input_poll.find("peek_input_edge_snapshot(&snapshot)");
+  const auto peek_encoder = input_poll.find(
+      "peek_pending_encoder_steps(&encoder_run)");
+  const auto chronological_deadline = input_poll.find(
+      "process_debounce_deadlines_through(", peek_encoder);
+  const auto emitted_timestamp = input_poll.find(
+      "encoder_run.first_timestamp_ms", chronological_deadline);
+  const auto ordered_tie_break = input_poll.find(
+      "encoder_run.first_order_sequence");
+  const auto claim_encoder_run = input_poll.find(
+      "claim_pending_encoder_steps(&encoder_run)");
+  const auto admit_encoder_run = input_poll.find("if (!emit(");
+  const auto retain_on_backpressure = input_poll.find(
+      "break;", admit_encoder_run);
+  const auto pop_admitted_run = input_poll.find(
+      "take_pending_encoder_steps(&accepted_run)", admit_encoder_run);
+  assert(peek_input != std::string::npos);
+  assert(peek_encoder != std::string::npos);
+  assert(chronological_deadline != std::string::npos);
+  assert(emitted_timestamp != std::string::npos);
+  assert(ordered_tie_break != std::string::npos);
+  assert(claim_encoder_run != std::string::npos);
+  assert(admit_encoder_run != std::string::npos);
+  assert(retain_on_backpressure != std::string::npos);
+  assert(pop_admitted_run != std::string::npos);
+  assert(peek_input < chronological_deadline);
+  assert(peek_encoder < chronological_deadline);
+  assert(chronological_deadline < emitted_timestamp);
+  assert(claim_encoder_run < admit_encoder_run);
+  assert(admit_encoder_run < retain_on_backpressure);
+  assert(retain_on_backpressure < pop_admitted_run);
+  assert(input_poll.find("if (!source_backpressured)", pop_admitted_run) !=
+         std::string::npos);
+  assert(gpio_source.find("bool ordered_event_before_or_equal(") !=
+         std::string::npos);
+  assert(gpio_source.find("pending_encoder_steps_.break_coalescing()") !=
+         std::string::npos);
+  const auto input_isr = section(
+      gpio_source,
+      "void GpioInputScanner::handle_input_edge_from_isr()",
+      "bool GpioInputScanner::peek_input_edge_snapshot(");
+  const auto input_isr_lock = input_isr.find(
+      "portENTER_CRITICAL_ISR(&wake_mux_)");
+  const auto input_isr_timestamp = input_isr.find("esp_timer_get_time()");
+  const auto input_isr_snapshot = input_isr.find("active_input_mask()");
+  const auto input_isr_sequence = input_isr.find(
+      "snapshot.order_sequence = next_input_order_sequence_++");
+  assert(input_isr_lock < input_isr_timestamp);
+  assert(input_isr_timestamp < input_isr_snapshot);
+  assert(input_isr_snapshot < input_isr_sequence);
+
+  const auto encoder_isr = section(
+      gpio_source,
+      "void GpioInputScanner::handle_encoder_edge_from_isr()",
+      "bool GpioInputScanner::peek_pending_encoder_steps(");
+  const auto encoder_isr_lock = encoder_isr.find(
+      "portENTER_CRITICAL_ISR(&wake_mux_)");
+  const auto encoder_isr_timestamp = encoder_isr.find("esp_timer_get_time()");
+  const auto encoder_isr_snapshot = encoder_isr.find("encoder_state()");
+  const auto encoder_isr_sequence = encoder_isr.find(
+      "const auto order_sequence = next_input_order_sequence_++");
+  assert(encoder_isr_lock < encoder_isr_timestamp);
+  assert(encoder_isr_timestamp < encoder_isr_snapshot);
+  assert(encoder_isr_snapshot < encoder_isr_sequence);
+
+  const auto selection_dispatch = section(
+      app_main,
+      "bool dispatch_encoder_text_selection_step(",
+      "bool dispatch_encoder_rotation(");
+  assert(selection_dispatch.find("const auto retain_steps") !=
+         std::string::npos);
+  assert(selection_dispatch.find("retained = retain_steps()") !=
+         std::string::npos);
+  assert(selection_dispatch.find("return false") != std::string::npos);
+  assert(selection_dispatch.find("split_on_saturation") != std::string::npos);
+  const auto initial_flush = selection_dispatch.find(
+      "flush_encoder_text_selection(app)");
+  const auto canceled_source = selection_dispatch.find(
+      "if (!app->encoder_text_selection_active)", initial_flush);
+  const auto retain_source = selection_dispatch.find(
+      "const auto retain_steps", canceled_source);
+  assert(initial_flush != std::string::npos);
+  assert(canceled_source != std::string::npos);
+  assert(retain_source != std::string::npos);
+  assert(initial_flush < canceled_source);
+  assert(canceled_source < retain_source);
+  assert(selection_dispatch.find("return true;", canceled_source) <
+         retain_source);
+
+  const auto rotation_dispatch = section(
+      app_main,
+      "bool dispatch_encoder_rotation(",
+      "void toggle_encoder_scroll_axis(");
+  const auto drain_exit = rotation_dispatch.find(
+      "encoder_text_selection_owns_keyboard_transport(app)");
+  const auto normal_cursor = rotation_dispatch.find("dispatch_encoder_cursor");
+  assert(drain_exit != std::string::npos);
+  assert(normal_cursor != std::string::npos);
+  assert(drain_exit < normal_cursor);
+  assert(rotation_dispatch.find("return false;") != std::string::npos);
+
+  const auto transport_poll = app_main.find("app.ble.poll_input_delivery(millis())");
+  const auto selection_retry = app_main.find(
+      "flush_encoder_text_selection(&app)", transport_poll);
+  assert(transport_poll != std::string::npos);
+  assert(selection_retry != std::string::npos);
+  assert(transport_poll < selection_retry);
+
+  assert(app_main.find("kReportIdMouse") == std::string::npos);
+  assert(app_main.find("MouseDrag") == std::string::npos);
+  assert(app_main.find("TextCaretSelectionPhase") == std::string::npos);
+  assert(app_main.find("send_text_caret_selection_event") == std::string::npos);
+  assert(usb.find("kAppCommandKindTextCaretSelection") == std::string::npos);
+  assert(ble.find("kAppCommandKindTextCaretSelection") == std::string::npos);
+  assert(usb.find("send_text_caret_selection_event") == std::string::npos);
+  assert(ble.find("send_text_caret_selection_event") == std::string::npos);
+  assert(usb.find("queue_mouse_drag_report_for_epoch") == std::string::npos);
+  assert(ble.find("send_mouse_drag_report_for_owner") == std::string::npos);
+}
+
 void peripheral_power_lifecycle_is_system_owned_and_ordered() {
   const auto controller =
       read_source("main/platform/peripheral_power.cpp");
@@ -3273,6 +3483,7 @@ int main() {
   speaker_asset_wifi_admission_owns_ingress_power_and_listener_epoch();
   speaker_asset_endpoint_accept_retires_before_lifetime_unlock();
   speaker_asset_boot_read_uses_the_protocol_store_runner();
+  encoder_text_caret_selection_uses_native_keyboard_chords();
   peripheral_power_lifecycle_is_system_owned_and_ordered();
   runtime_logs_do_not_emit_user_or_device_identifiers();
   return 0;

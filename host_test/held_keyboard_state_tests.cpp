@@ -192,6 +192,61 @@ void windows_ptt_chords_keep_shared_modifiers_and_remaining_key() {
   assert(state.release(InputId::Key3).became_empty);
 }
 
+void encoder_selection_chord_restores_the_exact_physical_snapshot() {
+  HeldKeyboardState state;
+  const auto physical = state.press(InputId::Key1, report("Ctrl+A"));
+  assert(physical.accepted());
+  const auto baseline = state.current();
+
+  const auto chord =
+      state.press(InputId::EncoderRight, report("Shift+ArrowRight"));
+  assert(chord.accepted());
+  assert(chord.report_changed);
+  assert(chord.snapshot.modifier == 0x03);
+  assert(chord.snapshot.keycodes[0] == 0x04);
+  assert(chord.snapshot.keycodes[1] == 0x4F);
+
+  const auto restored = state.release(InputId::EncoderRight);
+  assert(restored.accepted());
+  assert(restored.report_changed);
+  assert(restored.snapshot == baseline);
+  assert(state.current() == baseline);
+}
+
+void encoder_selection_does_not_perturb_an_identical_physical_chord() {
+  HeldKeyboardState state;
+  assert(state.press(InputId::Key1, report("Shift+ArrowLeft")).accepted());
+  const auto baseline = state.current();
+
+  const auto duplicate =
+      state.press(InputId::EncoderLeft, report("Shift+ArrowLeft"));
+  assert(duplicate.accepted());
+  assert(duplicate.state_changed);
+  assert(!duplicate.report_changed);
+  assert(duplicate.snapshot == baseline);
+
+  const auto restored = state.release(InputId::EncoderLeft);
+  assert(restored.accepted());
+  assert(restored.state_changed);
+  assert(!restored.report_changed);
+  assert(restored.snapshot == baseline);
+}
+
+void encoder_selection_rejects_rollover_without_mutating_physical_keys() {
+  HeldKeyboardState state;
+  assert(state.press(InputId::Key1, report("A+B+C+D+E+F")).accepted());
+  const auto baseline = state.current();
+
+  const auto overflow =
+      state.press(InputId::EncoderRight, report("Shift+ArrowRight"));
+  assert(overflow.status == HeldKeyboardUpdateStatus::Rollover);
+  assert(!overflow.accepted());
+  assert(!overflow.state_changed);
+  assert(overflow.snapshot == baseline);
+  assert(state.current() == baseline);
+  assert(!state.active(InputId::EncoderRight));
+}
+
 void invalid_source_and_report_do_not_mutate_state() {
   HeldKeyboardState state;
   ai_keyboard::HidKeyboardReport invalid;
@@ -217,6 +272,9 @@ int main() {
   clear_releases_all_sources_once();
   macos_ptt_modifiers_overlap_without_global_release();
   windows_ptt_chords_keep_shared_modifiers_and_remaining_key();
+  encoder_selection_chord_restores_the_exact_physical_snapshot();
+  encoder_selection_does_not_perturb_an_identical_physical_chord();
+  encoder_selection_rejects_rollover_without_mutating_physical_keys();
   invalid_source_and_report_do_not_mutate_state();
   return 0;
 }

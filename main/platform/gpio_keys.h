@@ -18,6 +18,12 @@ struct InputEvent {
   ai_keyboard::InputId input = ai_keyboard::InputId::Count;
   ai_keyboard::InputPhase phase = ai_keyboard::InputPhase::Pressed;
   int encoder_step = 0;
+  // Monotonic sampling time of the debounced edge or the first detent in an
+  // aggregated encoder run. Gesture boundaries must not use callback delay.
+  std::uint32_t timestamp_ms = 0;
+  // Total order assigned by the shared GPIO ISR critical section. This
+  // disambiguates button and encoder events sampled in the same millisecond.
+  std::uint32_t order_sequence = 0;
 };
 
 struct InputDiagnostics {
@@ -32,7 +38,10 @@ struct InputDiagnostics {
   std::uint32_t encoder_queue_drops = 0;
 };
 
-using InputEventCallback = void (*)(const InputEvent& event, void* context);
+// Returning false asks the scanner to retain an encoder run and retry it on a
+// later poll. Debounced key/button edges are already represented by state and
+// do not use callback backpressure.
+using InputEventCallback = bool (*)(const InputEvent& event, void* context);
 
 class GpioInputScanner {
  public:
@@ -61,6 +70,7 @@ class GpioInputScanner {
   struct InputEdgeSnapshot {
     std::uint32_t timestamp_ms = 0;
     std::uint32_t active_mask = 0;
+    std::uint32_t order_sequence = 0;
   };
 
   static constexpr std::size_t kInputEdgeQueueCapacity = 64;
@@ -73,18 +83,28 @@ class GpioInputScanner {
   void handle_input_edge_from_isr();
   void handle_wake_edge_from_isr();
   void handle_encoder_edge_from_isr();
+  bool peek_input_edge_snapshot(InputEdgeSnapshot* snapshot) const;
   bool take_input_edge_snapshot(InputEdgeSnapshot* snapshot);
   std::uint32_t take_input_edge_drop_count();
   void process_input_snapshot(const InputEdgeSnapshot& snapshot,
                               InputEventCallback callback,
                               void* context);
-  bool take_pending_encoder_steps(int* steps);
-  void emit(const InputEvent& event, InputEventCallback callback, void* context);
+  bool next_transition_deadline_for_mask(std::uint32_t active_mask,
+                                         std::uint32_t* deadline_ms) const;
+  void process_debounce_deadlines_through(std::uint32_t through_ms,
+                                          std::uint32_t active_mask,
+                                          InputEventCallback callback,
+                                          void* context);
+  bool peek_pending_encoder_steps(ai_keyboard::EncoderStepRun* run) const;
+  bool claim_pending_encoder_steps(ai_keyboard::EncoderStepRun* run);
+  bool take_pending_encoder_steps(ai_keyboard::EncoderStepRun* run);
+  bool emit(const InputEvent& event, InputEventCallback callback, void* context);
 
   std::array<ai_keyboard::DebouncedInput, ai_keyboard::kKeyPins.size()> key_debouncers_;
   ai_keyboard::DebouncedInput encoder_press_debouncer_;
   ai_keyboard::EncoderDecoder encoder_decoder_;
-  mutable portMUX_TYPE encoder_mux_ = portMUX_INITIALIZER_UNLOCKED;
+  // One mux owns raw-edge ordering, input snapshots, and encoder runs so an
+  // input edge is also an atomic coalescing fence across CPU cores.
   mutable portMUX_TYPE wake_mux_ = portMUX_INITIALIZER_UNLOCKED;
   ai_keyboard::EncoderStepQueue pending_encoder_steps_;
   std::array<InputEdgeSnapshot, kInputEdgeQueueCapacity> input_edge_queue_{};
@@ -103,6 +123,9 @@ class GpioInputScanner {
   std::uint32_t encoder_step_count_ = 0;
   std::uint32_t encoder_queue_drop_count_ = 0;
   std::uint8_t last_encoder_state_ = 0;
+  std::uint32_t observed_active_mask_ = 0;
+  std::uint32_t observed_active_order_sequence_ = 0;
+  std::uint32_t next_input_order_sequence_ = 1;
   TaskHandle_t notify_task_ = nullptr;
 };
 
