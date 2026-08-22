@@ -10,6 +10,11 @@ namespace ai_keyboard {
 
 inline constexpr std::size_t kConfigStatusGattSafeLen = 512;
 inline constexpr std::size_t kConfigStatusBatteryBleReserveLen = 120;
+inline constexpr char kConfigStatusFallbackJson[] =
+    "{\"schema\":\"ai_keyboard.config_status.v1\",\"firmware\":\"unknown\","
+    "\"phase\":\"status\",\"status\":\"status_too_large\",\"bytes\":0,\"crc16\":0,"
+    "\"capabilities\":{\"config_max_bytes\":2048,\"host_action_v1\":true},"
+    "\"ptt_hotkey\":\"\",\"edit_ptt_hotkey\":\"\",\"saved\":false}";
 
 struct PowerDiagnosticsSnapshot {
   // The running firmware has one observable lifecycle state. Keep the wire

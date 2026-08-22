@@ -103,6 +103,31 @@ void fixed_text_actions_emit_text_event_on_press_only() {
   assert(up.kind == FirmwareEventKind::None);
 }
 
+void host_actions_emit_one_event_on_press_and_none_on_release() {
+  const std::string configured_action =
+      "host_action:123e4567-e89b-12d3-a456-426614174000";
+  ai_keyboard::Action action;
+  action.kind = ActionKind::HostAction;
+  action.host_action = configured_action;
+
+  const auto down = ai_keyboard::event_for_action(
+      action,
+      ai_keyboard::InputPhase::Pressed,
+      "RightMeta",
+      "AltGr");
+  const auto up = ai_keyboard::event_for_action(
+      action,
+      ai_keyboard::InputPhase::Released,
+      "RightMeta",
+      "AltGr");
+
+  assert(down.kind == FirmwareEventKind::HostAction);
+  assert(down.value == configured_action);
+  assert(!down.bridge_app_hotkey);
+  assert(up.kind == FirmwareEventKind::None);
+  assert(up.value.empty());
+}
+
 void custom_hotkey_actions_emit_press_and_release_events() {
   const ai_keyboard::Action action{ActionKind::Hotkey, "Ctrl+Alt+Space"};
 
@@ -212,6 +237,7 @@ int main() {
   edit_hold_actions_emit_edit_hotkey_events();
   disabled_actions_emit_no_event();
   fixed_text_actions_emit_text_event_on_press_only();
+  host_actions_emit_one_event_on_press_and_none_on_release();
   custom_hotkey_actions_emit_press_and_release_events();
   semantic_actions_resolve_for_each_target_platform();
   default_eight_keys_emit_exact_hid_for_both_platforms();

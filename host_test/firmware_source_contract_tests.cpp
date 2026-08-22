@@ -3452,6 +3452,101 @@ void runtime_logs_do_not_emit_user_or_device_identifiers() {
   }
 }
 
+void host_action_uses_shared_encoding_and_existing_single_channel_route() {
+  const auto app = read_source("main/app_main.cpp");
+  const auto usb = read_source("main/platform/usb_hid.cpp");
+  const auto ble = read_source("main/platform/ble_hid.cpp");
+
+  const auto dispatch = section(app,
+                                "void dispatch_firmware_event",
+                                "void dispatch_encoder_press_click");
+  assert(dispatch.find(
+             "case ai_keyboard::FirmwareEventKind::HostAction:") !=
+         std::string::npos);
+  assert(dispatch.find("kind = \"host_action\"") != std::string::npos);
+  const auto usb_attempt = dispatch.find(
+      "app->usb.send_firmware_event_for_epoch(source, event, usb_epoch)");
+  const auto suppress_fallback = dispatch.find("BLE fallback suppressed");
+  const auto usb_return = dispatch.find("return;", suppress_fallback);
+  const auto ble_without_usb = dispatch.find(
+      "app->ble.send_firmware_event(source, event)", usb_return);
+  assert(usb_attempt != std::string::npos);
+  assert(suppress_fallback != std::string::npos);
+  assert(usb_return != std::string::npos);
+  assert(ble_without_usb != std::string::npos);
+  assert(usb_attempt < suppress_fallback);
+  assert(suppress_fallback < usb_return);
+  assert(usb_return < ble_without_usb);
+
+  const auto usb_send = section(
+      usb,
+      "bool UsbHidTransport::send_firmware_event_for_epoch",
+      "bool UsbHidTransport::tap_hotkey");
+  const auto ble_send = section(
+      ble,
+      "bool BleHidTransport::send_firmware_event_for_owner",
+      "bool BleHidTransport::send_keyboard_report");
+  for (const auto* adapter : {&usb_send, &ble_send}) {
+    assert(adapter->find(
+               "case ai_keyboard::FirmwareEventKind::HostAction:") !=
+           std::string::npos);
+    assert(count_occurrences(*adapter, "encode_host_action_v1") == 1);
+    assert(adapter->find("report.payload[0]") != std::string::npos);
+    assert(adapter->find("report.payload[1]") != std::string::npos);
+    assert(adapter->find("report.payload[2]") != std::string::npos);
+    assert(adapter->find("report.payload[3]") != std::string::npos);
+    assert(adapter->find("send_app_command_report(") != std::string::npos);
+    assert(adapter->find("kAppCommandKindHostAction") == std::string::npos);
+    assert(adapter->find("0x05") == std::string::npos);
+    assert(adapter->find("36") == std::string::npos);
+    assert(adapter->find("48") == std::string::npos);
+  }
+
+  assert(usb.find("ai_keyboard::kHostActionV1ReportId") !=
+         std::string::npos);
+  assert(ble.find("ai_keyboard::kHostActionV1ReportId") !=
+         std::string::npos);
+
+  const auto usb_app_command = section(
+      usb,
+      "bool UsbHidTransport::push_app_command_report_locked",
+      "bool UsbHidTransport::send_fixed_text_command");
+  const auto ble_app_command = section(
+      ble,
+      "bool BleHidTransport::send_app_command_report",
+      "bool BleHidTransport::send_fixed_text_command");
+  for (const auto* builder : {&usb_app_command, &ble_app_command}) {
+    assert(builder->find(
+               "std::array<std::uint8_t, kAppCommandReportPayloadLen> "
+               "report{};") != std::string::npos);
+    assert(builder->find(
+               "std::copy_n(data, len, report.data() + "
+               "kAppCommandHeaderLen)") != std::string::npos);
+  }
+}
+
+void config_status_publication_uses_shared_bounded_ble_encoders() {
+  const auto ble = read_source("main/platform/ble_hid.cpp");
+  const auto publish = section(
+      ble,
+      "void BleHidTransport::publish_status_json",
+      "bool BleHidTransport::send_firmware_event");
+  assert(count_occurrences(
+             publish, "ai_keyboard::kConfigStatusFallbackJson") == 2);
+  assert(publish.find("wire_status.size() >") != std::string::npos);
+  assert(publish.find("ai_keyboard::kConfigStatusGattSafeLen") !=
+         std::string::npos);
+
+  const auto final_wire = section(
+      ble,
+      "std::string BleHidTransport::status_json_for_publish",
+      "bool BleHidTransport::copy_status_json_for_read");
+  assert(final_wire.find("append_ble_status_wire_json") != std::string::npos);
+  assert(final_wire.find("append_ble_detailed_status_wire_json") !=
+         std::string::npos);
+  assert(final_wire.find("std::snprintf") == std::string::npos);
+}
+
 }  // namespace
 
 int main() {
@@ -3486,5 +3581,7 @@ int main() {
   encoder_text_caret_selection_uses_native_keyboard_chords();
   peripheral_power_lifecycle_is_system_owned_and_ordered();
   runtime_logs_do_not_emit_user_or_device_identifiers();
+  host_action_uses_shared_encoding_and_existing_single_channel_route();
+  config_status_publication_uses_shared_bounded_ble_encoders();
   return 0;
 }

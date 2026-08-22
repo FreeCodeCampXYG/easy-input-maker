@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 
+#include "keyboard/ble_status_wire.h"
 #include "keyboard/config_receiver.h"
 
 namespace ai_keyboard {
@@ -12,6 +14,7 @@ namespace {
 constexpr std::size_t kStatusStringMaxLen = 48;
 constexpr std::size_t kCompactStatusStringMaxLen = 12;
 constexpr std::size_t kFirmwareStringMaxLen = 40;
+constexpr std::size_t kSpeakerProbeFirmwareStringMaxLen = 16;
 constexpr std::size_t kAudioCaptureStringMaxLen = 24;
 
 std::string escape_json_string(const std::string& value) {
@@ -237,6 +240,7 @@ void append_sync_core(std::ostringstream& out,
     out << ",\"usb_management_v1\":"
         << (snapshot.usb_management_v1 ? "true" : "false");
   }
+  out << ",\"host_action_v1\":true";
   out << "}";
   append_bool_field(out, first, "saved", snapshot.saved);
 }
@@ -430,11 +434,6 @@ std::string build_compact_status_json(const ConfigStatusSnapshot& snapshot,
     append_compact_audio(out, &first, snapshot.audio, include_audio_last_error);
   }
   if (include_power) {
-    // Battery status reserves 120 bytes for the BLE overlay. The diagnostic
-    // view has the full 512-byte envelope and carries the retained cycle when
-    // its detailed view fits. Minimal diagnostic fallbacks keep current power
-    // truth and omit the optional retained cycle rather than dropping both.
-    include_power_cycle = include_power_cycle && snapshot.phase != "battery";
     append_compact_power(
         out, &first, snapshot.power, include_power_cycle);
   }
@@ -447,6 +446,20 @@ std::string build_compact_status_json(const ConfigStatusSnapshot& snapshot,
   }
   out << "}";
   return out.str();
+}
+
+bool battery_status_fits_worst_case_ble_overlay(const std::string& status_json) {
+  const auto wire_json = append_ble_status_wire_json(
+      status_json,
+      {
+          true,
+          true,
+          std::numeric_limits<std::uint16_t>::max(),
+          std::numeric_limits<std::uint16_t>::max(),
+          std::numeric_limits<std::uint16_t>::max(),
+      });
+  return wire_json.size() > status_json.size() &&
+         wire_json.size() <= kConfigStatusGattSafeLen;
 }
 
 std::string build_battery_status_json(const ConfigStatusSnapshot& snapshot) {
@@ -474,7 +487,12 @@ std::string build_speaker_probe_status_json(
   // fact, but omit legacy static booleans and hotkey detail so worst-case
   // 32-bit metrics remain within the shared USB/BLE 512-byte envelope.
   append_bounded_string_field(
-      out, &first, "firmware", snapshot.firmware, 36, "unknown");
+      out,
+      &first,
+      "firmware",
+      snapshot.firmware,
+      kSpeakerProbeFirmwareStringMaxLen,
+      "unknown");
   append_bounded_string_field(
       out, &first, "phase", "spk_probe", kCompactStatusStringMaxLen);
   append_bounded_string_field(
@@ -487,7 +505,7 @@ std::string build_speaker_probe_status_json(
                               "macos");
   append_object_separator(out, &first);
   out << "\"capabilities\":{\"config_max_bytes\":" << kConfigMaxJsonLen
-      << "}";
+      << ",\"host_action_v1\":true}";
   append_bool_field(out, &first, "saved", snapshot.saved);
   append_uint_field(out, &first, "bytes", snapshot.bytes);
   append_uint_field(out, &first, "crc16", snapshot.crc16);
@@ -540,7 +558,8 @@ static std::string build_full_status_json(const ConfigStatusSnapshot& snapshot) 
       << (snapshot.offline_platform_switch ? "true" : "false")
       << ",\"config_max_bytes\":" << kConfigMaxJsonLen
       << ",\"usb_management_v1\":"
-      << (snapshot.usb_management_v1 ? "true" : "false") << "}"
+      << (snapshot.usb_management_v1 ? "true" : "false")
+      << ",\"host_action_v1\":true}"
       << ",\"saved\":" << (snapshot.saved ? "true" : "false")
       << ",\"battery_mv\":" << snapshot.battery_mv
       << ",\"battery_percent\":" << static_cast<unsigned>(snapshot.battery_percent);
@@ -636,14 +655,32 @@ std::string build_config_status_json(const ConfigStatusSnapshot& snapshot) {
 
   if (snapshot.phase == "battery") {
     const auto compact = build_battery_status_json(snapshot);
-    if (compact.size() <=
-        kConfigStatusGattSafeLen - kConfigStatusBatteryBleReserveLen) {
+    if (battery_status_fits_worst_case_ble_overlay(compact)) {
       return compact;
     }
 
-    // The strings above are bounded, so this is only an adversarial-data guard.
-    // Keep the compact wake/mode evidence before verbose battery details when
-    // the reserved BLE budget is exhausted by counter-width extremes.
+    // A recent power-cycle is optional historical evidence. If it alone pushes
+    // the battery snapshot over the final BLE wire budget, retain the complete
+    // current power object and shed only the four cycle fields first.
+    const auto without_cycle = build_compact_status_json(snapshot,
+                                                          true,
+                                                          true,
+                                                          false,
+                                                          true,
+                                                          false,
+                                                          true,
+                                                          false,
+                                                          false,
+                                                          true,
+                                                          true,
+                                                          true,
+                                                          false);
+    if (battery_status_fits_worst_case_ble_overlay(without_cycle)) {
+      return without_cycle;
+    }
+
+    // Battery detail and the compact speaker boot core are optional overlays.
+    // Current power truth remains present through every fallback.
     const auto without_battery_detail = build_compact_status_json(snapshot,
                                                                    true,
                                                                    false,
@@ -655,51 +692,46 @@ std::string build_config_status_json(const ConfigStatusSnapshot& snapshot) {
                                                                    false,
                                                                    true,
                                                                    true,
+                                                                   true,
                                                                    true);
-    if (without_battery_detail.size() <=
-        kConfigStatusGattSafeLen - kConfigStatusBatteryBleReserveLen) {
+    if (battery_status_fits_worst_case_ble_overlay(without_battery_detail)) {
       return without_battery_detail;
     }
 
-    // Speaker boot evidence and compact power detail are diagnostic overlays.
-    // Try keeping the speaker core without power before falling back to the
-    // mandatory management contract.
-    const auto without_power = build_compact_status_json(snapshot,
-                                                          true,
-                                                          false,
-                                                          false,
-                                                          false,
-                                                          false,
-                                                          true,
-                                                          false,
-                                                          false,
-                                                          true,
-                                                          true,
-                                                          true);
-    if (without_power.size() <=
-        kConfigStatusGattSafeLen - kConfigStatusBatteryBleReserveLen) {
-      return without_power;
+    const auto without_battery_detail_or_cycle = build_compact_status_json(
+        snapshot,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false);
+    if (battery_status_fits_worst_case_ble_overlay(
+            without_battery_detail_or_cycle)) {
+      return without_battery_detail_or_cycle;
     }
 
-    // A battery refresh replaces the one published GATT status snapshot. It
-    // therefore must remain a self-contained management snapshot even when
-    // optional telemetry does not fit. The App needs both explicit legacy
-    // capability booleans to distinguish a current firmware from an old or
-    // incomplete response; never trade those fields for power/speaker detail.
-    // With bounded firmware/phase/status/platform strings this core, config
-    // fingerprint and battery summary are guaranteed to fit in the 392-byte
-    // base budget reserved ahead of the BLE connection overlay.
+    // The last bounded base fallback still retains current power. The final
+    // BLE encoder appends live connection evidence only when the complete JSON
+    // remains within 512 bytes; otherwise it publishes this bounded base.
     return build_compact_status_json(snapshot,
                                      true,
                                      false,
                                      false,
-                                     false,
+                                     true,
                                      false,
                                      true,
                                      false,
                                      false,
                                      true,
                                      true,
+                                     false,
                                      false);
   }
 
@@ -770,6 +802,23 @@ std::string build_config_status_json(const ConfigStatusSnapshot& snapshot) {
     return compact;
   }
 
+  const auto compact_without_cycle = build_compact_status_json(snapshot,
+                                                                preserve_fingerprint,
+                                                                false,
+                                                                true,
+                                                                true,
+                                                                false,
+                                                                true,
+                                                                true,
+                                                                true,
+                                                                true,
+                                                                true,
+                                                                false,
+                                                                false);
+  if (compact_without_cycle.size() <= kConfigStatusGattSafeLen) {
+    return compact_without_cycle;
+  }
+
   if (!snapshot.audio.control_state.empty()) {
     const auto minimal_audio_with_error =
         build_compact_status_json(snapshot,
@@ -796,6 +845,24 @@ std::string build_config_status_json(const ConfigStatusSnapshot& snapshot) {
                                                               false);
   if (without_audio_error.size() <= kConfigStatusGattSafeLen) {
     return without_audio_error;
+  }
+
+  const auto without_audio_error_or_cycle = build_compact_status_json(
+      snapshot,
+      preserve_fingerprint,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false);
+  if (without_audio_error_or_cycle.size() <= kConfigStatusGattSafeLen) {
+    return without_audio_error_or_cycle;
   }
 
   // Runtime audio evidence is more useful than static legacy capabilities or

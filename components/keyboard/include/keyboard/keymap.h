@@ -36,6 +36,7 @@ enum class ActionKind {
   ToggleProfile,
   Hotkey,
   FixedText,
+  HostAction,
   PreviousProfile,
   NextProfile,
   Settings,
@@ -62,6 +63,7 @@ struct Action {
   ActionKind kind = ActionKind::Disabled;
   std::string hotkey;
   std::string text;
+  std::string host_action;
 };
 
 class Keymap {
@@ -80,6 +82,7 @@ enum class FirmwareEventKind {
   HidKeyUp,
   HidTap,
   FixedText,
+  HostAction,
   AppCommand,
 };
 

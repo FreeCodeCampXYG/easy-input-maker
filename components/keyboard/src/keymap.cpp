@@ -2,6 +2,8 @@
 
 #include <utility>
 
+#include "keyboard/host_action_protocol.h"
+
 namespace ai_keyboard {
 namespace {
 
@@ -77,6 +79,12 @@ FirmwareEvent event_for_action(const Action& action,
         return {};
       }
       return {FirmwareEventKind::FixedText, action.text};
+    case ActionKind::HostAction:
+      if (phase == InputPhase::Released ||
+          !is_canonical_host_action_value(action.host_action)) {
+        return {};
+      }
+      return {FirmwareEventKind::HostAction, action.host_action};
     case ActionKind::PasteLast:
       return command_event("paste_last", phase);
     case ActionKind::OpenHistory:

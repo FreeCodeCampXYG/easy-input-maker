@@ -61,6 +61,16 @@ std::string legacy_factory_payload(const std::string& top_level_fields) {
   })";
 }
 
+std::string payload_with_key6_string_action(const std::string& action) {
+  auto payload = valid_payload("host-action-placeholder", "F13", "F12");
+  const std::string placeholder =
+      R"({"hotkey":"host-action-placeholder"})";
+  const auto offset = payload.find(placeholder);
+  assert(offset != std::string::npos);
+  payload.replace(offset, placeholder.size(), "\"" + action + "\"");
+  return payload;
+}
+
 }  // namespace
 
 void starts_with_default_keymap() {
@@ -258,6 +268,27 @@ void rejects_invalid_payload_without_overwriting_current_config() {
   assert(state.last_applied_json() == valid_payload("F14", "F13", "F12"));
 }
 
+void rejects_noncanonical_host_action_without_overwriting_current_config() {
+  const std::string canonical =
+      "host_action:123e4567-e89b-12d3-a456-426614174000";
+  const auto accepted_payload = payload_with_key6_string_action(canonical);
+
+  ai_keyboard::ConfigState state;
+  assert(state.apply_json(accepted_payload) == ConfigParseStatus::Ok);
+  assert(state.keymap().action_for(InputId::Key6).kind ==
+         ActionKind::HostAction);
+  assert(state.keymap().action_for(InputId::Key6).host_action == canonical);
+
+  const auto status = state.apply_json(payload_with_key6_string_action(
+      "host_action:123E4567-e89b-12d3-a456-426614174000"));
+
+  assert(status == ConfigParseStatus::UnknownAction);
+  assert(state.keymap().action_for(InputId::Key6).kind ==
+         ActionKind::HostAction);
+  assert(state.keymap().action_for(InputId::Key6).host_action == canonical);
+  assert(state.last_applied_json() == accepted_payload);
+}
+
 int main() {
   starts_with_default_keymap();
   applies_valid_payload();
@@ -268,5 +299,6 @@ int main() {
   derives_audio_capability_from_complete_endpoint();
   rejects_incomplete_endpoint_as_audio_capability();
   rejects_invalid_payload_without_overwriting_current_config();
+  rejects_noncanonical_host_action_without_overwriting_current_config();
   return 0;
 }

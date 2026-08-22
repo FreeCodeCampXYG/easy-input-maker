@@ -18,6 +18,7 @@
 #include "keyboard/ble_status_wire.h"
 #include "keyboard/config_status.h"
 #include "keyboard/hid_keycode.h"
+#include "keyboard/host_action_protocol.h"
 #include "platform/nvs_store.h"
 #include "sdkconfig.h"
 
@@ -70,13 +71,14 @@ static_assert(kAppCommandHeaderLen ==
               ai_keyboard::kFixedTextAppCommandHeaderLen);
 static_assert(kAppCommandChunkDataLen ==
               ai_keyboard::kFixedTextAppCommandChunkDataLen);
-constexpr char kConfigStatusFallbackJson[] =
-    "{\"schema\":\"ai_keyboard.config_status.v1\",\"firmware\":\"unknown\","
-    "\"phase\":\"status\",\"status\":\"status_too_large\",\"bytes\":0,\"crc16\":0,"
-    "\"capabilities\":{\"config_max_bytes\":2048},"
-    "\"ptt_hotkey\":\"\",\"edit_ptt_hotkey\":\"\",\"saved\":false}";
+static_assert(kReportIdAppCommand ==
+              ai_keyboard::kHostActionV1ReportId);
+static_assert(kAppCommandReportPayloadLen ==
+              ai_keyboard::kHostActionV1PayloadLen);
+static_assert(kAppCommandHeaderLen ==
+              ai_keyboard::kHostActionV1HeaderLen);
 static_assert(ai_keyboard::kConfigMaxJsonLen == 2048);
-static_assert(sizeof(kConfigStatusFallbackJson) - 1 <=
+static_assert(sizeof(ai_keyboard::kConfigStatusFallbackJson) - 1 <=
               ai_keyboard::kConfigStatusGattSafeLen);
 static_assert(CONFIG_BT_NIMBLE_EATT_CHAN_NUM == 0,
               "per-connection GATT long-read snapshots require EATT disabled");
@@ -1654,10 +1656,10 @@ void BleHidTransport::publish_status_json(const std::string& status_json) {
   const bool fits_safe_gatt_read =
       status_json.size() <= ai_keyboard::kConfigStatusGattSafeLen;
   const std::string bounded_status =
-      fits_safe_gatt_read ? status_json : kConfigStatusFallbackJson;
+      fits_safe_gatt_read ? status_json : ai_keyboard::kConfigStatusFallbackJson;
   auto wire_status = status_json_for_publish(bounded_status);
   if (wire_status.size() > ai_keyboard::kConfigStatusGattSafeLen) {
-    wire_status = kConfigStatusFallbackJson;
+    wire_status = ai_keyboard::kConfigStatusFallbackJson;
   }
 
   bool published = false;
@@ -1729,6 +1731,20 @@ bool BleHidTransport::send_firmware_event_for_owner(
                static_cast<unsigned>(event.value.size()),
                static_cast<unsigned>(chunks));
       return send_fixed_text_command(event.value, expected_owner);
+    }
+    case ai_keyboard::FirmwareEventKind::HostAction: {
+      ai_keyboard::HostActionV1Report report;
+      if (!ai_keyboard::encode_host_action_v1(event.value, &report) ||
+          report.report_id != kReportIdAppCommand) {
+        return false;
+      }
+      return send_app_command_report(
+          report.payload[0],
+          report.payload[1],
+          report.payload[2],
+          report.payload.data() + ai_keyboard::kHostActionV1HeaderLen,
+          report.payload[3],
+          expected_owner);
     }
     case ai_keyboard::FirmwareEventKind::AppCommand:
       ESP_LOGI(kTag, "ACTION %s app_command", source);
@@ -3504,40 +3520,30 @@ std::string BleHidTransport::status_json_for_publish(
   hid_queue_high_watermark =
       hid_queue_high_watermark_.load(std::memory_order_relaxed);
 
-  std::array<char, 448> ble_fragment{};
   const bool connected_now = conn_handle != kInvalidConnHandle;
-  const int fragment_len = std::snprintf(
-      ble_fragment.data(),
-      ble_fragment.size(),
-      ",\"ble\":{\"connected\":%u,\"pending\":%u,\"handle\":%u,\"valid\":%u,\"itvl\":%u,\"latency\":%u,\"timeout\":%u,\"upd\":%ld,\"hidq\":%u,\"hid_enq\":%lu,\"hid_tx\":%lu,\"hid_drop\":%lu,\"hid_retry\":%lu,\"hid_hwm\":%lu,\"wheelq\":%u,\"wheel_enq\":%lu,\"wheel_merge\":%lu,\"wheel_tx\":%lu,\"wheel_drop\":%lu}",
-      connected_now ? 1U : 0U,
-      update_in_flight ? 1U : 0U,
-      connected_now ? static_cast<unsigned>(conn_handle) : 0U,
-      params_valid ? 1U : 0U,
-      params_valid ? static_cast<unsigned>(conn_interval) : 0U,
-      params_valid ? static_cast<unsigned>(conn_latency) : 0U,
-      params_valid ? static_cast<unsigned>(supervision_timeout) : 0U,
-      static_cast<long>(update_status),
-      static_cast<unsigned>(queued_reports),
-      static_cast<unsigned long>(enqueued_reports),
-      static_cast<unsigned long>(transmitted_reports),
-      static_cast<unsigned long>(dropped_reports),
-      static_cast<unsigned long>(retryable_reports),
-      static_cast<unsigned long>(hid_queue_high_watermark),
-      static_cast<unsigned>(queued_wheel_reports),
-      static_cast<unsigned long>(enqueued_wheel_reports),
-      static_cast<unsigned long>(coalesced_wheel_reports),
-      static_cast<unsigned long>(transmitted_wheel_reports),
-      static_cast<unsigned long>(dropped_wheel_reports));
-  if (fragment_len <= 0 ||
-      static_cast<std::size_t>(fragment_len) >= ble_fragment.size() ||
-      status.size() + static_cast<std::size_t>(fragment_len) >
-          ai_keyboard::kConfigStatusGattSafeLen) {
-    return status;
-  }
-
-  status.insert(status.size() - 1, ble_fragment.data(), static_cast<std::size_t>(fragment_len));
-  return status;
+  return ai_keyboard::append_ble_detailed_status_wire_json(
+      std::move(status),
+      {
+          connected_now,
+          update_in_flight,
+          conn_handle,
+          params_valid,
+          conn_interval,
+          conn_latency,
+          supervision_timeout,
+          update_status,
+          static_cast<std::uint32_t>(queued_reports),
+          enqueued_reports,
+          transmitted_reports,
+          dropped_reports,
+          retryable_reports,
+          hid_queue_high_watermark,
+          static_cast<std::uint32_t>(queued_wheel_reports),
+          enqueued_wheel_reports,
+          coalesced_wheel_reports,
+          transmitted_wheel_reports,
+          dropped_wheel_reports,
+      });
 }
 
 bool BleHidTransport::copy_status_json_for_read(std::uint16_t conn_handle,

@@ -49,6 +49,30 @@ bool is_valid_utf8(const std::string& value) {
   return true;
 }
 
+std::size_t count_occurrences(const std::string& value,
+                              const std::string& needle) {
+  std::size_t count = 0;
+  std::size_t offset = 0;
+  while ((offset = value.find(needle, offset)) != std::string::npos) {
+    ++count;
+    offset += needle.size();
+  }
+  return count;
+}
+
+void assert_host_action_v1_capability(const std::string& json) {
+  constexpr char kCapability[] = R"("host_action_v1":true)";
+  assert(count_occurrences(json, kCapability) == 1);
+  assert(json.find(R"("host_action_v1":"true")") == std::string::npos);
+  assert(json.find(R"("host_action_v1":false)") == std::string::npos);
+  const auto capabilities_begin = json.find(R"("capabilities":{)");
+  assert(capabilities_begin != std::string::npos);
+  const auto capabilities_end = json.find('}', capabilities_begin);
+  const auto capability = json.find(kCapability, capabilities_begin);
+  assert(capability != std::string::npos);
+  assert(capability < capabilities_end);
+}
+
 void assert_sync_core(const std::string& json,
                       const std::string& firmware,
                       const std::string& target_platform,
@@ -59,11 +83,12 @@ void assert_sync_core(const std::string& json,
   assert(json.find(R"("target_platform":")" + target_platform + R"(")") !=
          std::string::npos);
   const auto expected_capabilities = !legacy_capabilities
-      ? R"("capabilities":{"config_max_bytes":2048})"
+      ? R"("capabilities":{"config_max_bytes":2048,"host_action_v1":true})"
       : (usb_management
-             ? R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048,"usb_management_v1":true})"
-             : R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048})");
+             ? R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048,"usb_management_v1":true,"host_action_v1":true})"
+             : R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048,"host_action_v1":true})");
   assert(json.find(expected_capabilities) != std::string::npos);
+  assert_host_action_v1_capability(json);
   assert(json.find(saved ? R"("saved":true)" : R"("saved":false)") !=
          std::string::npos);
 }
@@ -223,9 +248,10 @@ void includes_compact_board_diagnostics_without_audio_status() {
 
 void carries_truthful_recent_deep_sleep_cycle_when_budget_allows() {
   ai_keyboard::ConfigStatusSnapshot snapshot;
-  snapshot.firmware = "0.4.46";
-  snapshot.phase = "status";
-  snapshot.status = "ok";
+  snapshot.firmware = "v";
+  snapshot.phase = "s";
+  snapshot.status = "o";
+  snapshot.target_platform = "m";
   snapshot.saved = true;
   snapshot.power = {
       // Mixed-version callers cannot put a retired application mode back on
@@ -255,6 +281,40 @@ void carries_truthful_recent_deep_sleep_cycle_when_budget_allows() {
   assert(json.find(R"("cycle_idle_ms")") == std::string::npos);
   assert(json.find(R"("cycle_deep_ms")") == std::string::npos);
   assert(json.find(R"("cycle_flags")") == std::string::npos);
+  assert(json.size() <= ai_keyboard::kConfigStatusGattSafeLen);
+}
+
+void recent_cycle_overflow_keeps_current_power_and_omits_only_cycle() {
+  ai_keyboard::ConfigStatusSnapshot snapshot;
+  snapshot.firmware = "0.4.46";
+  snapshot.phase = "status";
+  snapshot.status = "ok";
+  snapshot.saved = true;
+  snapshot.power = {
+      "awake",
+      1'800'123,
+      "key_wake_low",
+      "deep_key",
+      4,
+      false,
+      9,
+      1'800'000,
+      true,
+      "deep_key",
+  };
+
+  const auto json = ai_keyboard::build_config_status_json(snapshot);
+  assert_sync_core(json, snapshot.firmware, "macos", true);
+  assert(json.find(R"("power":{"compact":true,"mode":"awake")") !=
+         std::string::npos);
+  assert(json.find(R"("inactive_ms":1800123)") != std::string::npos);
+  assert(json.find(R"("deep_sleep_block":"key_wake_low")") !=
+         std::string::npos);
+  assert(json.find(R"("last_wake":"deep_key")") != std::string::npos);
+  assert(json.find(R"("cycle_seq")") == std::string::npos);
+  assert(json.find(R"("cycle_inactive_ms")") == std::string::npos);
+  assert(json.find(R"("cycle_deep_sleep")") == std::string::npos);
+  assert(json.find(R"("cycle_wake")") == std::string::npos);
   assert(json.size() <= ai_keyboard::kConfigStatusGattSafeLen);
 }
 
@@ -568,12 +628,14 @@ void includes_fresh_battery_metadata() {
   assert(json.find(R"("crc16":65424)") != std::string::npos);
   assert(json.find(R"("ptt_hotkey")") == std::string::npos);
   assert(json.find(R"("audio")") == std::string::npos);
-  // The battery view must reserve 120 bytes for the live BLE overlay and keep
-  // the config fingerprint. If current power truth cannot fit that smaller
-  // envelope it is omitted as one object, never partially or under legacy
-  // Active/Idle/DeepIdle field names. The dedicated diagnostic view above
-  // carries the full current power facts.
-  assert(json.find(R"("power")") == std::string::npos);
+  // A battery refresh may omit the optional recent cycle when the BLE wire
+  // budget is tight, but it must retain the complete current power evidence.
+  assert(json.find(R"("power":{"compact":true,"mode":"awake")") !=
+         std::string::npos);
+  assert(json.find(R"("inactive_ms":600000)") != std::string::npos);
+  assert(json.find(R"("deep_sleep_block":"keyboard_mic")") !=
+         std::string::npos);
+  assert(json.find(R"("last_wake":"deep_key")") != std::string::npos);
   assert(json.find(R"("poll_ms")") == std::string::npos);
   assert(json.find(R"("idle_ms")") == std::string::npos);
   assert(json.find(R"("deep_entries")") == std::string::npos);
@@ -584,11 +646,10 @@ void includes_fresh_battery_metadata() {
   assert(json.find(R"("cycle_seq")") == std::string::npos);
   assert(json.find(R"("cycle_deep_ms")") == std::string::npos);
   assert(json.find(R"("cycle_flags")") == std::string::npos);
-  assert(json.size() <= ai_keyboard::kConfigStatusGattSafeLen -
-                            ai_keyboard::kConfigStatusBatteryBleReserveLen);
+  assert(json.size() <= ai_keyboard::kConfigStatusGattSafeLen);
 }
 
-void battery_status_reserves_space_for_ble_at_counter_limits() {
+void battery_status_is_bounded_at_counter_limits_and_keeps_power() {
   ai_keyboard::ConfigStatusSnapshot snapshot;
   snapshot.firmware = "0.4.30-idf-v2-readable-status";
   snapshot.phase = "battery";
@@ -619,9 +680,14 @@ void battery_status_reserves_space_for_ble_at_counter_limits() {
   assert(json.find(R"("bytes":65535)") != std::string::npos);
   assert(json.find(R"("crc16":65535)") != std::string::npos);
   assert(json.find(R"("battery_mv":65535)") != std::string::npos);
-  assert(json.find(R"("power")") == std::string::npos);
-  assert(json.size() <= ai_keyboard::kConfigStatusGattSafeLen -
-                            ai_keyboard::kConfigStatusBatteryBleReserveLen);
+  assert(json.find(R"("power":{"compact":true,"mode":"awake")") !=
+         std::string::npos);
+  assert(json.find(R"("inactive_ms":4294967295)") != std::string::npos);
+  assert(json.find(R"("deep_sleep_block":"dddddddddddddddddddddddd")") !=
+         std::string::npos);
+  assert(json.find(R"("last_wake":"wwwwwwwwwwww")") != std::string::npos);
+  assert(json.find(R"("cycle_seq")") == std::string::npos);
+  assert(json.size() <= ai_keyboard::kConfigStatusGattSafeLen);
 }
 
 void escapes_status_strings() {
@@ -655,7 +721,7 @@ void legacy_status_omits_optional_speaker_probe() {
   assert(json.size() <= ai_keyboard::kConfigStatusGattSafeLen);
 }
 
-void battery_status_carries_compact_boot_speaker_evidence() {
+void battery_status_keeps_current_power_before_optional_speaker_evidence() {
   ai_keyboard::ConfigStatusSnapshot snapshot;
   snapshot.firmware = "0.4.40-idf-v2-root-fix";
   snapshot.phase = "battery";
@@ -686,12 +752,12 @@ void battery_status_carries_compact_boot_speaker_evidence() {
   assert_sync_core(json, snapshot.firmware, "macos", true, false);
   assert(json.find(R"("bytes":1999)") != std::string::npos);
   assert(json.find(R"("crc16":44143)") != std::string::npos);
-  assert(json.find(
-             R"("spk":{"v":1,"g":4294967295,"st":6,"r":5,"e":7,"x":-2147483648})") !=
+  assert(json.find(R"("power":{"compact":true,"mode":"awake")") !=
          std::string::npos);
-  assert(json.size() <=
-         ai_keyboard::kConfigStatusGattSafeLen -
-             ai_keyboard::kConfigStatusBatteryBleReserveLen);
+  assert(json.find(R"("deep_sleep_block":"idle")") != std::string::npos);
+  assert(json.find(R"("last_wake":"boot")") != std::string::npos);
+  assert(json.find(R"("spk":)") == std::string::npos);
+  assert(json.size() <= ai_keyboard::kConfigStatusGattSafeLen);
 }
 
 void speaker_probe_worst_case_is_versioned_complete_and_gatt_safe() {
@@ -741,7 +807,7 @@ void speaker_probe_worst_case_is_versioned_complete_and_gatt_safe() {
 
   const auto json = ai_keyboard::build_config_status_json(snapshot);
   assert_sync_core(
-      json, std::string(36, 'f'), "windows", true, false, false);
+      json, std::string(16, 'f'), "windows", true, false, false);
   assert(json.find(R"("phase":"spk_probe")") != std::string::npos);
   assert(json.find(R"("status":"probe")") != std::string::npos);
   assert(json.find(R"("bytes":65535)") != std::string::npos);
@@ -776,6 +842,7 @@ int main() {
   builds_compact_status_json();
   includes_compact_board_diagnostics_without_audio_status();
   carries_truthful_recent_deep_sleep_cycle_when_budget_allows();
+  recent_cycle_overflow_keeps_current_power_and_omits_only_cycle();
   long_press_diagnostic_status_is_self_contained_and_gatt_safe();
   clips_long_audio_error_and_stays_gatt_safe();
   preserves_app_visible_audio_capture_states_in_compact_status();
@@ -784,10 +851,10 @@ int main() {
   compact_status_clipping_preserves_utf8_codepoint_boundaries();
   config_confirmation_omits_diagnostics_and_is_gatt_safe();
   includes_fresh_battery_metadata();
-  battery_status_reserves_space_for_ble_at_counter_limits();
+  battery_status_is_bounded_at_counter_limits_and_keeps_power();
   escapes_status_strings();
   legacy_status_omits_optional_speaker_probe();
-  battery_status_carries_compact_boot_speaker_evidence();
+  battery_status_keeps_current_power_before_optional_speaker_evidence();
   speaker_probe_worst_case_is_versioned_complete_and_gatt_safe();
   return 0;
 }
