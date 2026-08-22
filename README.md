@@ -118,3 +118,10 @@ AI 写代码不等于结果已经正确。你仍需要查看改动、确认测�
 欢迎提交 Issue、文档、测试、修复和非商业学习功能。Pull Request 必须说明实际运行过哪些验证，并区分静态检查、构建成功和实板观察。AI 辅助贡献由提交者负责理解、检查和验证。
 
 EasyInput Maker 是 **WaytoAGI 社区项目**。原作者：**CY-CHENYUE**。项目自有材料版权及许可主体：**深圳物启万相人工智能有限公司**。
+
+## 关注公众号
+
+<div align="center">
+  <p>扫码关注公众号，获取更新与交流反馈</p>
+  <img src="assets/readme/wechat-qr.jpg" alt="EasyInput 微信公众号二维码" width="200">
+</div>

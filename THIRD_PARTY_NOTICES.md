@@ -14,11 +14,20 @@ For project-owned material, the copyright and licensing entity is 深圳物启�
 | `espressif/tinyusb` | Managed transitive dependency | 0.21.0~1 | MIT | Preserve the TinyUSB copyright and MIT permission notice |
 | `espressif/esp_audio_codec` | Optional managed dependency for the Ogg/Opus diagnostic build | 2.5.0 | Espressif Modified MIT License (`LicenseRef-Espressif-Modified-MIT`) | Use only with Espressif Systems products and preserve its copyright and license notice |
 
+## README visual asset inventory
+
+| Asset | Intended form | Version / basis | License | Required handling |
+| --- | --- | --- | --- | --- |
+| WeChat official account QR image | README image at `assets/readme/wechat-qr.jpg` | Copied unmodified from `CY-CHENYUE/project-flow-cy` commit `7d3ad181f65e034b7b45cff916f15cfd8fc7db74`; SHA-256 `9daa1588d879a2572aefd7dcd7327208b5bb8110f2a7f6e9a9e6e7b1615d16e3` | GPL-3.0-or-later | Preserve the CY-CHENYUE copyright, source provenance, this notice, and the GPL-3.0-or-later license text |
+
+`project-flow-cy` QR asset notice: Copyright (c) 2026 CY-CHENYUE. This asset is licensed under GPL-3.0-or-later. When copying, modifying, or distributing the asset or derivative versions, keep this notice and the license statement.
+
 The dependency inventory must be updated whenever a component, version, copied source file, generated asset, font, image, audio file, model, or other redistributable material is added or removed.
 
 ## License texts
 
 - `LICENSES/Apache-2.0.txt` — Apache License 2.0.
+- `LICENSES/GPL-3.0-or-later.txt` — license for the separately licensed README QR image.
 - `LICENSES/MIT-TinyUSB.txt` — TinyUSB MIT license and copyright notice.
 - `LICENSES/LicenseRef-Espressif-Modified-MIT.txt` — license for the optional Espressif audio codec component.
 
@@ -36,3 +45,4 @@ Audio, images, fonts, models, diagrams, and other non-code assets may be publish
 - ESP Component Registry, `esp_tinyusb` 1.7.6~2: <https://components.espressif.com/components/espressif/esp_tinyusb/versions/1.7.6~2>
 - ESP Component Registry, `tinyusb` 0.21.0~1: <https://components.espressif.com/components/espressif/tinyusb/versions/0.21.0~1>
 - ESP Component Registry, `esp_audio_codec` 2.5.0: <https://components.espressif.com/components/espressif/esp_audio_codec/versions/2.5.0>
+- `project-flow-cy` QR image source: <https://github.com/CY-CHENYUE/project-flow-cy/blob/7d3ad181f65e034b7b45cff916f15cfd8fc7db74/assets/wechat-qr.jpg>
