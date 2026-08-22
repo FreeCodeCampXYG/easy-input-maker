@@ -15,6 +15,7 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_timer.h"
+#include "keyboard/ble_persistence_policy.h"
 #include "keyboard/ble_status_wire.h"
 #include "keyboard/config_status.h"
 #include "keyboard/hid_keycode.h"
@@ -48,9 +49,10 @@ constexpr const char* kBleDeviceName = "EasyInput AI";
 constexpr const char* kBleShortName = "EasyInput AI";
 constexpr std::uint16_t kAppearanceHidGeneric = 0x03C0;
 constexpr std::uint16_t kBleHidVersion = 0x010A;
-// Revision 4 removes the retired auxiliary bulk characteristics while
-// retaining HID, configuration/status and Agent characteristics.
-constexpr std::uint8_t kGattSchemaRevision = 4;
+// Revision 5 establishes the versioned CCCD migration epoch. Public UUIDs and
+// report descriptors remain unchanged; old characteristic-handle subscriptions
+// are retired before the new revision is advertised.
+constexpr std::uint8_t kGattSchemaRevision = 5;
 constexpr std::uint8_t kReportIdKeyboard = 0x01;
 constexpr std::uint8_t kReportIdMouse = 0x02;
 constexpr std::uint8_t kReportIdConfig = 0x10;
@@ -82,6 +84,14 @@ static_assert(sizeof(ai_keyboard::kConfigStatusFallbackJson) - 1 <=
               ai_keyboard::kConfigStatusGattSafeLen);
 static_assert(CONFIG_BT_NIMBLE_EATT_CHAN_NUM == 0,
               "per-connection GATT long-read snapshots require EATT disabled");
+static_assert(
+    CONFIG_BT_NIMBLE_MAX_BONDS ==
+        ai_keyboard::BlePersistencePolicy::kRememberedPeers,
+    "NimBLE bond capacity must match the product persistence contract");
+static_assert(
+    ai_keyboard::BlePersistencePolicy::cccd_capacity_supports_product(
+        CONFIG_BT_NIMBLE_MAX_CCCDS),
+    "NimBLE CCCD capacity must cover every remembered peer plus migration");
 constexpr int32_t kDirectedReconnectDurationMs = 10000;
 constexpr int32_t kFastAdvertisingDurationMs = 60000;
 constexpr std::int64_t kConnectedConfigAdvertisingWindowUs = 5LL * 60 * 1000 * 1000;
@@ -277,6 +287,9 @@ constexpr std::uint8_t kReportMap[] = {
     0xC0,              // End Collection
 };
 
+const ble_uuid16_t kGattServiceUuid = BLE_UUID16_INIT(BLE_GATT_SVC_UUID16);
+const ble_uuid16_t kServiceChangedUuid =
+    BLE_UUID16_INIT(BLE_SVC_GATT_CHR_SERVICE_CHANGED_UUID16);
 const ble_uuid16_t kHidServiceUuid = BLE_UUID16_INIT(0x1812);
 const ble_uuid128_t kConfigServiceUuid =
     BLE_UUID128_INIT(0x01, 0x00, 0x32, 0x53, 0x46, 0x6D, 0x01, 0x8B,
@@ -294,6 +307,216 @@ const ble_uuid128_t kAgentStatusWriteUuid =
 BleHidTransport* s_transport = nullptr;
 std::uint16_t s_config_status_handle = 0;
 std::uint16_t s_agent_status_write_handle = 0;
+
+bool is_bonded_peer(
+    const ble_addr_t& peer,
+    const std::array<ble_addr_t,
+                     ai_keyboard::BlePersistencePolicy::kRememberedPeers>&
+        bonded_peers,
+    int bonded_peer_count) {
+  for (int index = 0; index < bonded_peer_count; ++index) {
+    if (ble_addr_cmp(&peer, &bonded_peers[static_cast<std::size_t>(index)]) ==
+        0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+int delete_cccd(const ble_store_value_cccd& value) {
+  ble_store_key_cccd key{};
+  ble_store_key_from_value_cccd(&key, &value);
+  return ble_store_delete_cccd(&key);
+}
+
+int reclaim_orphan_cccds(std::size_t* removed_count) {
+  if (removed_count == nullptr) {
+    return BLE_HS_EINVAL;
+  }
+  *removed_count = 0;
+
+  std::array<ble_addr_t,
+             ai_keyboard::BlePersistencePolicy::kRememberedPeers>
+      bonded_peers{};
+  int bonded_peer_count = 0;
+  int rc = ble_store_util_bonded_peers(
+      bonded_peers.data(),
+      &bonded_peer_count,
+      static_cast<int>(bonded_peers.size()));
+  if (rc != 0) {
+    return rc;
+  }
+
+  std::uint8_t index = 0;
+  while (true) {
+    ble_store_key_cccd lookup{};
+    lookup.idx = index;
+    ble_store_value_cccd value{};
+    rc = ble_store_read_cccd(&lookup, &value);
+    if (rc == BLE_HS_ENOENT) {
+      return 0;
+    }
+    if (rc != 0) {
+      return rc;
+    }
+
+    if (is_bonded_peer(value.peer_addr, bonded_peers, bonded_peer_count)) {
+      ++index;
+      continue;
+    }
+
+    rc = delete_cccd(value);
+    if (rc != 0) {
+      return rc;
+    }
+    ++(*removed_count);
+    // Deletion compacts NimBLE's store, so the next record now occupies the
+    // same index.
+  }
+}
+
+ai_keyboard::BleStorePressureObject store_pressure_object(int object_type) {
+  switch (object_type) {
+    case BLE_STORE_OBJ_TYPE_CCCD:
+      return ai_keyboard::BleStorePressureObject::Cccd;
+    case BLE_STORE_OBJ_TYPE_OUR_SEC:
+    case BLE_STORE_OBJ_TYPE_PEER_SEC:
+    case BLE_STORE_OBJ_TYPE_PEER_ADDR:
+      return ai_keyboard::BleStorePressureObject::SecurityOrIdentity;
+    default:
+      return ai_keyboard::BleStorePressureObject::Other;
+  }
+}
+
+int product_ble_store_status(ble_store_status_event* event, void* arg) {
+  (void)arg;
+  if (event == nullptr) {
+    return BLE_HS_EINVAL;
+  }
+
+  const int object_type = event->event_code == BLE_STORE_EVENT_OVERFLOW
+                              ? event->overflow.obj_type
+                              : event->event_code == BLE_STORE_EVENT_FULL
+                                    ? event->full.obj_type
+                                    : -1;
+  const auto action = ai_keyboard::ble_store_pressure_action(
+      store_pressure_object(object_type));
+
+  if (event->event_code == BLE_STORE_EVENT_FULL) {
+    // NimBLE's preflight count includes the pairing procedure currently in
+    // flight. At two saved bonds plus one new pairing, count == capacity is
+    // still valid because the eventual write sees only the two saved rows.
+    // Allow the attempt; a real write overflow returns through the branch
+    // below and is rejected without evicting another peer.
+    ESP_LOGD(kTag,
+             "BLE store capacity preflight object=%d bonds=%u",
+             object_type,
+             static_cast<unsigned>(CONFIG_BT_NIMBLE_MAX_BONDS));
+    return 0;
+  }
+
+  if (event->event_code == BLE_STORE_EVENT_OVERFLOW &&
+      action ==
+          ai_keyboard::BleStorePressureAction::ReclaimOrphanCccdOnly) {
+    int before_count = -1;
+    (void)ble_store_util_count(BLE_STORE_OBJ_TYPE_CCCD, &before_count);
+    std::size_t removed_count = 0;
+    const int cleanup_rc = reclaim_orphan_cccds(&removed_count);
+    if (cleanup_rc != 0) {
+      ESP_LOGE(kTag,
+               "BLE CCCD orphan cleanup failed rc=%d records=%d capacity=%u",
+               cleanup_rc,
+               before_count,
+               static_cast<unsigned>(CONFIG_BT_NIMBLE_MAX_CCCDS));
+      return cleanup_rc;
+    }
+    if (removed_count != 0) {
+      ESP_LOGW(kTag,
+               "BLE CCCD pressure reclaimed orphan_records=%u before=%d "
+               "capacity=%u",
+               static_cast<unsigned>(removed_count),
+               before_count,
+               static_cast<unsigned>(CONFIG_BT_NIMBLE_MAX_CCCDS));
+      return 0;
+    }
+  }
+
+  // A product must never make room by silently deleting an unrelated bond.
+  // The exact-peer repeat-pairing path remains handled by GAP separately.
+  ESP_LOGE(kTag,
+           "BLE store capacity rejected event=%d object=%d capacity=%u",
+           event->event_code,
+           object_type,
+           object_type == BLE_STORE_OBJ_TYPE_CCCD
+               ? static_cast<unsigned>(CONFIG_BT_NIMBLE_MAX_CCCDS)
+               : static_cast<unsigned>(CONFIG_BT_NIMBLE_MAX_BONDS));
+  return event->event_code == BLE_STORE_EVENT_OVERFLOW ? BLE_HS_ESTORE_CAP
+                                                        : BLE_HS_EUNKNOWN;
+}
+
+int migrate_cccds_for_schema_change() {
+  std::uint16_t service_changed_value_handle = 0;
+  int rc = ble_gatts_find_chr(&kGattServiceUuid.u,
+                              &kServiceChangedUuid.u,
+                              nullptr,
+                              &service_changed_value_handle);
+  if (rc != 0 || service_changed_value_handle == 0) {
+    ESP_LOGE(kTag,
+             "GATT migration cannot resolve Service Changed handle rc=%d",
+             rc);
+    return rc == 0 ? BLE_HS_EUNKNOWN : rc;
+  }
+
+  std::size_t inspected_count = 0;
+  std::size_t removed_count = 0;
+  std::uint8_t index = 0;
+  while (true) {
+    ble_store_key_cccd lookup{};
+    lookup.idx = index;
+    ble_store_value_cccd value{};
+    rc = ble_store_read_cccd(&lookup, &value);
+    if (rc == BLE_HS_ENOENT) {
+      ESP_LOGI(kTag,
+               "GATT CCCD migration complete inspected=%u removed=%u "
+               "service_changed_preserved=%u",
+               static_cast<unsigned>(inspected_count),
+               static_cast<unsigned>(removed_count),
+               static_cast<unsigned>(inspected_count - removed_count));
+      return 0;
+    }
+    if (rc != 0) {
+      ESP_LOGE(kTag, "GATT CCCD migration read failed rc=%d", rc);
+      return rc;
+    }
+    ++inspected_count;
+
+    if (ai_keyboard::BlePersistencePolicy::
+            preserve_cccd_during_schema_migration(
+                value.chr_val_handle, service_changed_value_handle)) {
+      if (!value.value_changed) {
+        value.value_changed = 1;
+        rc = ble_store_write_cccd(&value);
+        if (rc != 0) {
+          ESP_LOGE(kTag,
+                   "GATT Service Changed persistence failed rc=%d",
+                   rc);
+          return rc;
+        }
+      }
+      ++index;
+      continue;
+    }
+
+    rc = delete_cccd(value);
+    if (rc != 0) {
+      ESP_LOGE(kTag, "GATT CCCD migration delete failed rc=%d", rc);
+      return rc;
+    }
+    ++removed_count;
+    // The array compacts after deletion; inspect the replacement at this
+    // index before advancing.
+  }
+}
 
 void host_task(void* param) {
   (void)param;
@@ -592,7 +815,8 @@ esp_err_t BleHidTransport::begin() {
     return ESP_FAIL;
   }
 
-  ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+  ble_hs_cfg.store_status_cb = product_ble_store_status;
+  ble_hs_cfg.store_status_arg = nullptr;
   ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
   ble_hs_cfg.sm_bonding = 1;
   ble_hs_cfg.sm_mitm = 0;
@@ -2458,19 +2682,30 @@ void BleHidTransport::handle_hidd_event(std::int32_t event_id, void* event_data)
     case ESP_HIDD_START_EVENT:
       ESP_LOGI(kTag, "HID started");
       if (gatt_schema_change_pending_) {
-        ble_svc_gatt_changed(0x0001, 0xFFFF);
-        esp_err_t save_err = ESP_OK;
-        NvsConfigStore nvs_store;
-        if (nvs_store.save_gatt_schema_revision(kGattSchemaRevision, &save_err)) {
-          gatt_schema_change_pending_ = false;
-          ESP_LOGI(kTag,
-                   "GATT schema revision %u announced and persisted",
-                   static_cast<unsigned>(kGattSchemaRevision));
+        const int migration_rc = migrate_cccds_for_schema_change();
+        if (migration_rc == 0) {
+          ble_svc_gatt_changed(0x0001, 0xFFFF);
+          esp_err_t save_err = ESP_OK;
+          NvsConfigStore nvs_store;
+          if (nvs_store.save_gatt_schema_revision(kGattSchemaRevision,
+                                                  &save_err)) {
+            gatt_schema_change_pending_ = false;
+            ESP_LOGI(kTag,
+                     "GATT schema revision %u migrated, announced and persisted",
+                     static_cast<unsigned>(kGattSchemaRevision));
+          } else {
+            ESP_LOGW(kTag,
+                     "GATT schema revision %u migrated and announced but "
+                     "persistence failed: %s",
+                     static_cast<unsigned>(kGattSchemaRevision),
+                     esp_err_to_name(save_err));
+          }
         } else {
-          ESP_LOGW(kTag,
-                   "GATT schema revision %u announced but persistence failed: %s",
+          ESP_LOGE(kTag,
+                   "GATT schema revision %u migration failed rc=%d; pending "
+                   "revision retained",
                    static_cast<unsigned>(kGattSchemaRevision),
-                   esp_err_to_name(save_err));
+                   migration_rc);
         }
       }
       slow_advertising_.store(false, std::memory_order_release);

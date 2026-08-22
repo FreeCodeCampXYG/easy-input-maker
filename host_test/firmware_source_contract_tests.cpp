@@ -3190,6 +3190,69 @@ void encoder_text_caret_selection_uses_native_keyboard_chords() {
   assert(ble.find("send_mouse_drag_report_for_owner") == std::string::npos);
 }
 
+void ble_persistence_is_capacity_safe_and_migrated_before_advertising() {
+  const auto defaults = read_source("sdkconfig.defaults");
+  const auto ble_hid = read_source("main/platform/ble_hid.cpp");
+  const auto compact_ble_hid = without_ascii_whitespace(ble_hid);
+
+  assert(defaults.find("CONFIG_BT_NIMBLE_MAX_BONDS=3") !=
+         std::string::npos);
+  assert(defaults.find("CONFIG_BT_NIMBLE_MAX_CCCDS=32") !=
+         std::string::npos);
+  assert(compact_ble_hid.find(
+             "CONFIG_BT_NIMBLE_MAX_BONDS=="
+             "ai_keyboard::BlePersistencePolicy::kRememberedPeers") !=
+         std::string::npos);
+  assert(compact_ble_hid.find(
+             "ai_keyboard::BlePersistencePolicy::cccd_capacity_supports_product("
+             "CONFIG_BT_NIMBLE_MAX_CCCDS)") != std::string::npos);
+  assert(ble_hid.find("ble_hs_cfg.store_status_cb = product_ble_store_status") !=
+         std::string::npos);
+  assert(ble_hid.find("ble_store_util_status_rr") == std::string::npos);
+  assert(ble_hid.find("ble_gap_unpair_oldest") == std::string::npos);
+  const auto store_status = section(ble_hid,
+                                    "int product_ble_store_status",
+                                    "int migrate_cccds_for_schema_change");
+  const auto full_preflight =
+      store_status.find("event->event_code == BLE_STORE_EVENT_FULL");
+  const auto allow_preflight = store_status.find("return 0;", full_preflight);
+  const auto actual_overflow =
+      store_status.find("event->event_code == BLE_STORE_EVENT_OVERFLOW",
+                        allow_preflight);
+  assert(full_preflight != std::string::npos);
+  assert(allow_preflight != std::string::npos);
+  assert(actual_overflow != std::string::npos);
+  assert(full_preflight < allow_preflight);
+  assert(allow_preflight < actual_overflow);
+
+  const auto start_event = section(ble_hid,
+                                   "case ESP_HIDD_START_EVENT:",
+                                   "case ESP_HIDD_CONNECT_EVENT:");
+  const auto migrate =
+      start_event.find("migrate_cccds_for_schema_change()");
+  const auto service_changed =
+      start_event.find("ble_svc_gatt_changed(0x0001, 0xFFFF)");
+  const auto persist =
+      start_event.find("save_gatt_schema_revision(kGattSchemaRevision");
+  const auto advertise = start_event.find("request_advertising_reconcile()");
+  assert(migrate != std::string::npos);
+  assert(service_changed != std::string::npos);
+  assert(persist != std::string::npos);
+  assert(advertise != std::string::npos);
+  assert(migrate < service_changed);
+  assert(service_changed < persist);
+  assert(persist < advertise);
+  const auto migration_body = section(ble_hid,
+                                      "int migrate_cccds_for_schema_change()",
+                                      "void host_task(void* param)");
+  const auto mark_changed = migration_body.find("value.value_changed = 1");
+  const auto checked_write =
+      migration_body.find("ble_store_write_cccd(&value)", mark_changed);
+  assert(mark_changed != std::string::npos);
+  assert(checked_write != std::string::npos);
+  assert(mark_changed < checked_write);
+}
+
 void peripheral_power_lifecycle_is_system_owned_and_ordered() {
   const auto controller =
       read_source("main/platform/peripheral_power.cpp");
@@ -3423,7 +3486,7 @@ void peripheral_power_lifecycle_is_system_owned_and_ordered() {
 
   assert(app_main.find("esp_reset_reason()") != std::string::npos);
   assert(app_main.find("reset_reason=%d brownout=%d") != std::string::npos);
-  assert(app_main.find("0.4.52-idf-v2-boot-resource-gate") !=
+  assert(app_main.find("0.4.53-idf-v2-ble-store-v1") !=
          std::string::npos);
 }
 
@@ -3579,6 +3642,7 @@ int main() {
   speaker_asset_endpoint_accept_retires_before_lifetime_unlock();
   speaker_asset_boot_read_uses_the_protocol_store_runner();
   encoder_text_caret_selection_uses_native_keyboard_chords();
+  ble_persistence_is_capacity_safe_and_migrated_before_advertising();
   peripheral_power_lifecycle_is_system_owned_and_ordered();
   runtime_logs_do_not_emit_user_or_device_identifiers();
   host_action_uses_shared_encoding_and_existing_single_channel_route();
