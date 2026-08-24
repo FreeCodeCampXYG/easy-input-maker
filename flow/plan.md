@@ -4,7 +4,7 @@
 
 ## 里程碑
 
-- [ ] 建立 Host Action v1 完整基线与学员起点：固化三层边界，验证 Maker `main`，创建只移除 Host Action 的课程分支与两个固定标签，并在隔离现场准备生产公共代码同步；不引入 OTA、不推送、不烧录。
+- [x] 建立 Host Action v1 完整基线与学员起点：固化三层边界，验证 Maker `main`，创建只移除 Host Action 的课程分支与两个固定标签，并在隔离现场完成生产公共代码同步验证；不引入 OTA、不推送、不烧录。
 - [x] 完成 Host Action v1 烧录前只读修改范围审计：可靠基线为 `main@34087cd`，写入前 20 个 unstaged tracked、12 个 untracked 与 2 个 ignored 生成目录均逐文件／目录归类；八项禁止边界全部 PASS，无无关或无法解释项，`SAFE_TO_REQUEST_FLASH = YES`，但未访问设备或授予烧录。
 - [x] 完成 Host Action v1 软件侧总验收：重新配置后 CTest 实际发现／执行／通过 59/59/59、0 失败；ESP-IDF v5.5.5 对默认 `v2`／`esp32s3` 构建通过，应用镜像 `0x190470` 字节、App 分区剩余 `0x16fb90` 字节（48%）；未烧录、未运行 App 或真机验证。
 - [x] 完成 Host Action v1 第 08 步能力声明：完整、紧凑、speaker probe、确认、battery、BLE fallback 与最终发布变体都只包含一次布尔 `host_action_v1: true`；状态预算回归完成，定向 6/6、完整宿主 59/59 通过，最大最终 BLE 状态 512/512 字节；未运行 ESP-IDF 构建或实板验证。

@@ -11,4 +11,10 @@
   4. `main` 与 starter 分别重新运行全部宿主测试和 ESP-IDF 5.5.5 默认构建；
   5. 用差异清单和禁止项扫描证明课程差异，不以删除／跳过无关测试制造通过；
   6. 建立 `course-host-action-v1-complete-v1` 与 `course-host-action-v1-start-v1` 本地固定标签；未经另行授权不推送，不访问设备或烧录。
-- **状态**：进行中
+- **完成证据**：
+  - Maker 完成版基线提交 `294ca11`，`course-host-action-v1-complete-v1` 固定指向该课程完成版；宿主测试 `60/60`，ESP-IDF 5.5.5 / v2 / ESP32-S3 默认构建通过，App 镜像 1,640,528 bytes。
+  - `course/host-action-v1-starter@743368a` 只移除 Host Action 生产实现与 3 项答案型独立测试，`course-host-action-v1-start-v1` 固定课程起点；宿主测试 `57/57`，默认构建通过，App 镜像 1,639,168 bytes。
+  - starter 与完整基线的 GPIO、BOOT、GPIO8、板级引脚、设备身份、HID／GATT、BLE 持久化、Flash 分区和 sdkconfig 受保护文件零差异；固定示例 UUID 没有进入生产配置或生产源码。
+  - 产品侧在隔离工作树完成公共代码同步验证：公共 Host Action、状态预算和隐私日志边界对齐，生产专属 OTA 原样保留；宿主测试与锁定 IDF 构建通过。产品仓路径、内部发布现场和设备信息不写入本公开任务卡。
+  - 两个仓库均只形成本地分支／提交；未合并生产同步分支，未推送、未签名发布、未连接设备或烧录。
+- **状态**：已完成
