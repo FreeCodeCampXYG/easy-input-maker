@@ -500,38 +500,6 @@ void rejects_unknown_named_action() {
   assert(result.status == ConfigParseStatus::UnknownAction);
 }
 
-void parses_canonical_host_actions_and_preserves_the_full_value() {
-  const std::vector<std::string> actions{
-      "host_action:123e4567-e89b-12d3-a456-426614174000",
-      "host_action:00000000-0000-0000-0000-000000000000",
-  };
-
-  for (const auto& action_value : actions) {
-    const auto result = ai_keyboard::parse_config_payload(
-        payload_with_string_action(action_value));
-
-    assert(result.status == ConfigParseStatus::Ok);
-    const auto& action = result.config.keymap.action_for(InputId::Key1);
-    assert(action.kind == ActionKind::HostAction);
-    assert(action.host_action == action_value);
-  }
-}
-
-void rejects_noncanonical_host_action_uuids_without_normalizing() {
-  const std::vector<std::string> invalid{
-      "host_action:123E4567-e89b-12d3-a456-426614174000",
-      "host_action:123e4567-e89b-12d3-a456-42661417400",
-      "host_action:123e456-7e89b-12d3-a456-426614174000",
-      "host_action:123e4567-e89b-12d3-a456-42661417400g",
-  };
-
-  for (const auto& action_value : invalid) {
-    const auto result = ai_keyboard::parse_config_payload(
-        payload_with_string_action(action_value));
-    assert(result.status == ConfigParseStatus::UnknownAction);
-  }
-}
-
 void text_caret_selection_requires_cursor_mode_and_encoder_press() {
   const auto valid = ai_keyboard::parse_config_payload(
       payload_with_encoder_press("text_caret_select", "cursor"));
@@ -645,8 +613,6 @@ int main() {
   parses_paired_speaker_sync_credentials();
   rejects_unpaired_or_invalid_speaker_sync_credentials();
   rejects_unknown_named_action();
-  parses_canonical_host_actions_and_preserves_the_full_value();
-  rejects_noncanonical_host_action_uuids_without_normalizing();
   text_caret_selection_requires_cursor_mode_and_encoder_press();
   accepts_fixed_text_at_the_960_utf8_byte_limit();
   rejects_fixed_text_above_the_960_utf8_byte_limit();

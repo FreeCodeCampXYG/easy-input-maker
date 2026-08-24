@@ -19,7 +19,6 @@
 #include "keyboard/ble_status_wire.h"
 #include "keyboard/config_status.h"
 #include "keyboard/hid_keycode.h"
-#include "keyboard/host_action_protocol.h"
 #include "platform/nvs_store.h"
 #include "sdkconfig.h"
 
@@ -73,12 +72,6 @@ static_assert(kAppCommandHeaderLen ==
               ai_keyboard::kFixedTextAppCommandHeaderLen);
 static_assert(kAppCommandChunkDataLen ==
               ai_keyboard::kFixedTextAppCommandChunkDataLen);
-static_assert(kReportIdAppCommand ==
-              ai_keyboard::kHostActionV1ReportId);
-static_assert(kAppCommandReportPayloadLen ==
-              ai_keyboard::kHostActionV1PayloadLen);
-static_assert(kAppCommandHeaderLen ==
-              ai_keyboard::kHostActionV1HeaderLen);
 static_assert(ai_keyboard::kConfigMaxJsonLen == 2048);
 static_assert(sizeof(ai_keyboard::kConfigStatusFallbackJson) - 1 <=
               ai_keyboard::kConfigStatusGattSafeLen);
@@ -1955,20 +1948,6 @@ bool BleHidTransport::send_firmware_event_for_owner(
                static_cast<unsigned>(event.value.size()),
                static_cast<unsigned>(chunks));
       return send_fixed_text_command(event.value, expected_owner);
-    }
-    case ai_keyboard::FirmwareEventKind::HostAction: {
-      ai_keyboard::HostActionV1Report report;
-      if (!ai_keyboard::encode_host_action_v1(event.value, &report) ||
-          report.report_id != kReportIdAppCommand) {
-        return false;
-      }
-      return send_app_command_report(
-          report.payload[0],
-          report.payload[1],
-          report.payload[2],
-          report.payload.data() + ai_keyboard::kHostActionV1HeaderLen,
-          report.payload[3],
-          expected_owner);
     }
     case ai_keyboard::FirmwareEventKind::AppCommand:
       ESP_LOGI(kTag, "ACTION %s app_command", source);

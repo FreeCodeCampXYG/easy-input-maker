@@ -14,7 +14,6 @@
 #include "keyboard/config_receiver.h"
 #include "keyboard/fixed_text_protocol.h"
 #include "keyboard/hid_keycode.h"
-#include "keyboard/host_action_protocol.h"
 #include "keyboard/status_hid_protocol.h"
 #include "tinyusb.h"
 #include "tusb.h"
@@ -52,12 +51,6 @@ static_assert(kAppCommandHeaderLen ==
               ai_keyboard::kFixedTextAppCommandHeaderLen);
 static_assert(kAppCommandChunkDataLen ==
               ai_keyboard::kFixedTextAppCommandChunkDataLen);
-static_assert(kReportIdAppCommand ==
-              ai_keyboard::kHostActionV1ReportId);
-static_assert(kAppCommandReportPayloadLen ==
-              ai_keyboard::kHostActionV1PayloadLen);
-static_assert(kAppCommandHeaderLen ==
-              ai_keyboard::kHostActionV1HeaderLen);
 constexpr std::uint16_t kUsbVid = 0x303A;
 constexpr std::uint16_t kUsbPid = 0x1006;
 constexpr std::uint16_t kUsbBcdDevice = 0x010A;
@@ -1446,20 +1439,6 @@ bool UsbHidTransport::send_firmware_event_for_epoch(
         return type_text(event.value, expected_epoch);
       }
       return send_fixed_text_command(event.value, expected_epoch);
-    case ai_keyboard::FirmwareEventKind::HostAction: {
-      ai_keyboard::HostActionV1Report report;
-      if (!ai_keyboard::encode_host_action_v1(event.value, &report) ||
-          report.report_id != kReportIdAppCommand) {
-        return false;
-      }
-      return send_app_command_report(
-          report.payload[0],
-          report.payload[1],
-          report.payload[2],
-          report.payload.data() + ai_keyboard::kHostActionV1HeaderLen,
-          report.payload[3],
-          expected_epoch);
-    }
     case ai_keyboard::FirmwareEventKind::AppCommand:
       return false;
   }

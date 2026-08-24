@@ -1,35 +1,22 @@
-# 计划（plan）——契约
+# 计划（plan）——Host Action v1 课程起点
 
-> 初始化空白模板。计划经确认后再填写和执行。
+## 基线
 
-## 里程碑
+- [x] 课程起点与完整 `main` 共用当前公共固件底座，保留 BLE 配置持久化修复、编码器、音频、电源和硬件安全边界。
+- [x] 课程起点不含 Host Action 生产实现、能力声明或答案型测试，也不含产品专属 OTA、签名和部署工具。
+- [x] 起点重新发现并通过 57/57 项宿主测试，ESP-IDF 5.5.5 对 `v2`／`esp32s3` 默认构建通过。
 
-- [ ] 建立 Host Action v1 完整基线与学员起点：固化三层边界，验证 Maker `main`，创建只移除 Host Action 的课程分支与两个固定标签，并在隔离现场准备生产公共代码同步；不引入 OTA、不推送、不烧录。
-- [x] 完成 Host Action v1 烧录前只读修改范围审计：可靠基线为 `main@34087cd`，写入前 20 个 unstaged tracked、12 个 untracked 与 2 个 ignored 生成目录均逐文件／目录归类；八项禁止边界全部 PASS，无无关或无法解释项，`SAFE_TO_REQUEST_FLASH = YES`，但未访问设备或授予烧录。
-- [x] 完成 Host Action v1 软件侧总验收：重新配置后 CTest 实际发现／执行／通过 59/59/59、0 失败；ESP-IDF v5.5.5 对默认 `v2`／`esp32s3` 构建通过，应用镜像 `0x190470` 字节、App 分区剩余 `0x16fb90` 字节（48%）；未烧录、未运行 App 或真机验证。
-- [x] 完成 Host Action v1 第 08 步能力声明：完整、紧凑、speaker probe、确认、battery、BLE fallback 与最终发布变体都只包含一次布尔 `host_action_v1: true`；状态预算回归完成，定向 6/6、完整宿主 59/59 通过，最大最终 BLE 状态 512/512 字节；未运行 ESP-IDF 构建或实板验证。
-- [x] 完成 Host Action v1 Vendor HID App Command 发送接入：USB／BLE 共用共享编码，沿用 USB 优先且失败不迁移的单通道路由；定向 8/8、完整宿主 58/58、ESP-IDF 5.5.5 默认构建通过，未改描述符、GATT、能力声明或硬件边界。
-- [x] 完成 Host Action v1 的 KEY1—KEY8 配置覆盖：确认八键共用 `parse_binding()`，仅新增参数化宿主测试；定向 5/5、完整宿主 58/58 通过，生产逻辑和 USB／BLE 均无本轮差异。
-- [x] 完成 Host Action v1 纯逻辑节点：严格解析完整配置值、Keymap 按下／松开事件、共享 `0x11`／`0x05` 编码和失败优先宿主测试；定向 4/4、完整宿主 57/57 通过，未修改 `main/` 或 USB／BLE 适配。
-- [x] 核对并冻结 Host Action v1 兼容协议：现有 App Command 编号、63 字节容器和 USB 优先的单通道路由均无冲突；本节点只更新 `flow/`，未实现代码、未运行测试或构建、未烧录。
-- [x] 从干净 `main` 基线完成 Host Action 课程复跑的工程结构与 EasyInput V2.0 板型只读核对；本节点只更新 `flow/`，未改代码、未构建、未访问设备。
-- [x] 补齐 EasyInput App 已使用的编码器原生文字选择能力：兼容 `cursor + text_caret_select` 与旧动作名，完成手势、标准键盘报告、队列背压和 USB/BLE owner 保护；仅含本功能的暂存快照完整宿主测试 56/56、ESP-IDF 5.5.5 默认构建通过。
+## 学员推进节点
 
-## 任务拆解
+- [ ] T03 · 用宿主测试建立 UUID 校验、配置解析、Keymap 按下／松开和共享编码纯逻辑。
+- [ ] T04 · 用参数化测试证明 KEY1—KEY8 都经过同一配置链路，旧动作不回归。
+- [ ] T06 · 把共享编码接入现有 Vendor HID App Command，并保持 USB／BLE 单通道选择。
+- [ ] T08 · 增加布尔能力声明并证明所有实际 BLE 状态不超过 512 字节。
+- [ ] T09 · 重新运行全部宿主测试和 ESP-IDF 5.5.5 默认构建，明确软件证据边界。
+- [ ] T10 · 烧录前只读审计全部变化；烧录与真机功能验证仍需独立授权和观察。
 
-| 任务 | 负责角色 / 工具 | 输入 | 产出路径 | 验收标准 |
-|---|---|---|---|---|
-| T01 · 工程结构与板型只读核对 | 开发 Agent／`project-flow-cy`／`easyinput-board-cy` | 干净 `main` 基线、Maker 项目规则、EasyInput V2.0 板级合同 | `flow/tasks/T01-工程结构与板型只读核对.md` | 指明工程分层、按键链路入口和保护边界；无非 `flow/` 差异 |
-| T02 · Host Action v1 固定兼容协议 | 开发 Agent／`project-flow-cy` | 使用者冻结的 Host Action v1 合同、当前 Maker App Command 与状态协议 | `flow/tasks/T02-Host-Action-v1-固定兼容协议.md` | 逐项原样固定合同、完整改动层与不承担范围；确认无编号或容量冲突；本节点无非 `flow/` 差异 |
-| T03 · Host Action v1 纯逻辑实现 | 固件开发 Agent／`project-flow-cy` | T02 冻结合同、现有配置／Keymap／宿主测试基线 | `flow/tasks/T03-Host-Action-v1-纯逻辑实现.md` | 先红测后实现；定向与完整宿主测试通过；`main/`、USB、BLE 无差异 |
-| T04 · Host Action v1 八键配置覆盖 | 固件开发 Agent／`project-flow-cy` | T02 合同、T03 纯逻辑实现、KEY1—KEY8 通用解析链路 | `flow/tasks/T04-Host-Action-v1-八键配置覆盖.md` | 八键逐项解析并保留完整前缀；每次按下仅一个 Host Action、松开为 `None`；旧动作回归通过；示例 UUID 仅在宿主测试 |
-| T05 · 编码器原生文字选择 | 固件开发 Agent | EasyInput App 现有配置合同、当前 Maker 源码 | `flow/tasks/T05-编码器原生文字选择兼容.md` | 软件侧合同全部通过；App 重新同步与实板文字选择分别提供后续证据 |
-| T06 · Host Action v1 Vendor HID 发送接入 | 固件开发 Agent／`project-flow-cy`／`esp-idf-cy` | T02 冻结合同、T03 共享编码、T04 八键事件、现有 App Command 队列与路由 | `flow/tasks/T06-Host-Action-v1-Vendor-HID-发送接入.md` | USB／BLE 共用共享编码；固定 payload 与单通道不双发证据通过；完整宿主测试与 ESP-IDF 5.5.5 构建通过；禁止范围无差异 |
-| T08 · Host Action v1 能力声明与 BLE 状态预算 | 固件开发 Agent／`project-flow-cy` | T02 冻结合同、T06 发送接入、现有状态 JSON 与 BLE 最终发布路径 | `flow/tasks/T08-Host-Action-v1-能力声明与BLE状态预算.md` | 所有发布状态只含一次布尔能力；speaker 与 power/cycle 预算规则通过；最终 UTF-8 状态不超过 512 字节；完整宿主测试通过；不提前做 App／真机验证 |
-| T09 · Host Action v1 软件侧总验收 | 固件开发 Agent／`project-flow-cy`／`esp-idf-cy` | T02／T03／T04／T06／T08 交接、当前工作区、CTest 实际清单、ESP-IDF v5.5.5 | `flow/tasks/T09-Host-Action-v1-软件侧总验收.md` | 重新发现／执行／通过的宿主测试数量一致且 0 失败；默认 `v2`／`esp32s3` 构建通过；记录产物、空间、警告、边界和未验证项 |
-| T10 · Host Action v1 烧录前只读修改范围审计 | 审计 Agent／`project-flow-cy`／`easyinput-board-cy` | `main@34087cd` 课程起点、全部 staged／unstaged／untracked／ignored 内容、冻结合同和 T09 总验收 | `flow/tasks/T10-Host-Action-v1-烧录前只读修改范围审计.md` | 每项变化有合理归属；硬件、身份、协议、隐私和生成物八项边界全部 PASS；只更新 `flow/`，不访问设备或烧录 |
-| T11 · Host Action v1 课程分支与公共基线同步 | 维护 Agent／`project-flow-cy`／`git-workflow-cy`／`course-design-cy`／`easyinput-board-cy`／`esp-idf-cy` | 已确认的三层边界、Maker 完整基线、产品侧进入 OTA 前的公共固件事实 | `flow/tasks/T11-Host-Action-v1-课程分支与公共基线同步.md` | `main` 与 starter 仅有课程目标差异；BLE 修复保留、OTA 排除；两边宿主测试和 ESP-IDF 5.5.5 构建通过；分支与固定标签可追溯；不推送、不烧录 |
+## 合同入口
 
-## 实时进展 / 交接棒
-
-见 `flow/进展.md` 顶部；本文件只维护已经确认的计划。
+- 固定协议与不承担范围：`flow/tasks/T02-Host-Action-v1-固定兼容协议.md`
+- 课程节点任务卡：`flow/tasks/T03-*`、`T04-*`、`T06-*`、`T08-*`、`T09-*`、`T10-*`
+- 当前交接棒：`flow/进展.md` 顶部

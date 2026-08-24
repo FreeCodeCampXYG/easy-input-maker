@@ -49,30 +49,6 @@ bool is_valid_utf8(const std::string& value) {
   return true;
 }
 
-std::size_t count_occurrences(const std::string& value,
-                              const std::string& needle) {
-  std::size_t count = 0;
-  std::size_t offset = 0;
-  while ((offset = value.find(needle, offset)) != std::string::npos) {
-    ++count;
-    offset += needle.size();
-  }
-  return count;
-}
-
-void assert_host_action_v1_capability(const std::string& json) {
-  constexpr char kCapability[] = R"("host_action_v1":true)";
-  assert(count_occurrences(json, kCapability) == 1);
-  assert(json.find(R"("host_action_v1":"true")") == std::string::npos);
-  assert(json.find(R"("host_action_v1":false)") == std::string::npos);
-  const auto capabilities_begin = json.find(R"("capabilities":{)");
-  assert(capabilities_begin != std::string::npos);
-  const auto capabilities_end = json.find('}', capabilities_begin);
-  const auto capability = json.find(kCapability, capabilities_begin);
-  assert(capability != std::string::npos);
-  assert(capability < capabilities_end);
-}
-
 void assert_sync_core(const std::string& json,
                       const std::string& firmware,
                       const std::string& target_platform,
@@ -83,12 +59,11 @@ void assert_sync_core(const std::string& json,
   assert(json.find(R"("target_platform":")" + target_platform + R"(")") !=
          std::string::npos);
   const auto expected_capabilities = !legacy_capabilities
-      ? R"("capabilities":{"config_max_bytes":2048,"host_action_v1":true})"
+      ? R"("capabilities":{"config_max_bytes":2048})"
       : (usb_management
-             ? R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048,"usb_management_v1":true,"host_action_v1":true})"
-             : R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048,"host_action_v1":true})");
+             ? R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048,"usb_management_v1":true})"
+             : R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048})");
   assert(json.find(expected_capabilities) != std::string::npos);
-  assert_host_action_v1_capability(json);
   assert(json.find(saved ? R"("saved":true)" : R"("saved":false)") !=
          std::string::npos);
 }
@@ -286,7 +261,7 @@ void carries_truthful_recent_deep_sleep_cycle_when_budget_allows() {
 
 void recent_cycle_overflow_keeps_current_power_and_omits_only_cycle() {
   ai_keyboard::ConfigStatusSnapshot snapshot;
-  snapshot.firmware = "0.4.46";
+  snapshot.firmware = std::string(40, 'f');
   snapshot.phase = "status";
   snapshot.status = "ok";
   snapshot.saved = true;

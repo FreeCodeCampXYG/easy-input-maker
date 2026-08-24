@@ -240,7 +240,6 @@ void append_sync_core(std::ostringstream& out,
     out << ",\"usb_management_v1\":"
         << (snapshot.usb_management_v1 ? "true" : "false");
   }
-  out << ",\"host_action_v1\":true";
   out << "}";
   append_bool_field(out, first, "saved", snapshot.saved);
 }
@@ -505,7 +504,7 @@ std::string build_speaker_probe_status_json(
                               "macos");
   append_object_separator(out, &first);
   out << "\"capabilities\":{\"config_max_bytes\":" << kConfigMaxJsonLen
-      << ",\"host_action_v1\":true}";
+      << "}";
   append_bool_field(out, &first, "saved", snapshot.saved);
   append_uint_field(out, &first, "bytes", snapshot.bytes);
   append_uint_field(out, &first, "crc16", snapshot.crc16);
@@ -559,7 +558,7 @@ static std::string build_full_status_json(const ConfigStatusSnapshot& snapshot) 
       << ",\"config_max_bytes\":" << kConfigMaxJsonLen
       << ",\"usb_management_v1\":"
       << (snapshot.usb_management_v1 ? "true" : "false")
-      << ",\"host_action_v1\":true}"
+      << "}"
       << ",\"saved\":" << (snapshot.saved ? "true" : "false")
       << ",\"battery_mv\":" << snapshot.battery_mv
       << ",\"battery_percent\":" << static_cast<unsigned>(snapshot.battery_percent);

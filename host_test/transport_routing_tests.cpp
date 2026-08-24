@@ -47,17 +47,6 @@ void app_commands_prefer_usb_even_when_ble_is_connected() {
              true) == FirmwareTransportRoute::UsbFirst);
 }
 
-void host_actions_prefer_usb_and_keep_the_same_route_without_ble() {
-  const FirmwareEvent event{
-      FirmwareEventKind::HostAction,
-      "host_action:123e4567-e89b-12d3-a456-426614174000",
-  };
-  assert(ai_keyboard::route_for_firmware_event(event, true) ==
-         FirmwareTransportRoute::UsbFirst);
-  assert(ai_keyboard::route_for_firmware_event(event, false) ==
-         FirmwareTransportRoute::UsbFirst);
-}
-
 void usb_endpoint_lifetime_treats_every_mount_callback_as_a_new_endpoint() {
   UsbEndpointLifetime lifetime;
   assert(!lifetime.mounted());
@@ -718,7 +707,6 @@ int main() {
   fixed_text_prefers_usb_even_when_ble_is_connected();
   fixed_text_prefers_usb_when_ble_is_not_connected();
   app_commands_prefer_usb_even_when_ble_is_connected();
-  host_actions_prefer_usb_and_keep_the_same_route_without_ble();
   usb_endpoint_lifetime_treats_every_mount_callback_as_a_new_endpoint();
   usb_unmount_remount_is_visible_when_intermediate_state_is_not_sampled();
   usb_endpoint_epoch_wraps_without_exposing_zero();
