@@ -119,11 +119,22 @@ static_assert(std::is_same_v<
               SpeakerAssetsRuntimeCore::StepOutcome>);
 
 std::string read_source(const std::string& relative_path) {
-  std::ifstream input(std::string(EASY_INPUT_REPO_ROOT) + "/" + relative_path);
+  std::ifstream input(std::string(EASY_INPUT_REPO_ROOT) + "/" + relative_path,
+                      std::ios::binary);
   assert(input.good());
   std::ostringstream contents;
   contents << input.rdbuf();
-  return contents.str();
+  auto source = contents.str();
+  // 保留音频资源原始字节；源码换行统一后，Windows 与 Linux 的合同匹配才一致。
+  if (relative_path.size() < 4 ||
+      relative_path.compare(relative_path.size() - 4, 4, ".ogg") != 0) {
+    for (std::size_t offset = 0;
+         (offset = source.find("\r\n", offset)) != std::string::npos;) {
+      source.erase(offset, 1);
+      ++offset;
+    }
+  }
+  return source;
 }
 
 std::string section(const std::string& source,

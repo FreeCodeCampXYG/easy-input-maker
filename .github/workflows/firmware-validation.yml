@@ -1,0 +1,27 @@
+name: Firmware validation
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build host tests
+        run: cmake -S host_test -B build-host -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Compile host tests
+        run: cmake --build build-host --parallel
+
+      - name: Run host tests
+        run: ctest --test-dir build-host --output-on-failure
+
+      - name: Build ESP-IDF firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
