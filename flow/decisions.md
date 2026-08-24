@@ -2,6 +2,12 @@
 
 > 这里只追加适合公开、对后续协作确有价值的过程决策。
 
+## 2026-08-25 · 完整基线、课程起点与产品专属能力分层
+- 背景：完整公共固件已经具备 Host Action v1 和 BLE 配置持久化修复；课程需要让学员按节点实现 Host Action，同时又不能退回到缺少 BLE 修复的旧固件。产品固件另有 OTA、签名和发布流程，不属于本课程目标。
+- 决定：Maker `main` 维护完整公共固件基线；`course/host-action-v1-starter` 从同一公共底座中只移除 Host Action 的实现与答案型测试，继续保留 BLE 修复和所有无关公共能力。两者分别用 `course-host-action-v1-complete-v1` 与 `course-host-action-v1-start-v1` 固定课程版本。产品专属 OTA、签名、发布和部署工具不进入 Maker 的任何分支。
+- 同步原则：公共固件以行为合同和经过审计的文件差异同步，不做整仓覆盖。仓库专属文档、测试和课程差异可以不同；Maker 的公开隐私规则属于共同安全基线，不能为了机械一致恢复敏感日志。
+- 原因：这样既让学员面对真实、最新的 USB／BLE 底座，又只实现一件明确的课程目标；同时把 OTA 的分区迁移、可信发布和恢复风险隔离为独立产品能力。
+
 ## 2026-08-22 · Host Action v1 能力只属于状态 JSON
 - 背景：Host Action v1 的发送协议已经冻结并接入；第 08 步需要让 App 能从配置状态判断固件能力，同时维持 BLE 状态 512 字节硬上限。
 - 决定：`"host_action_v1": true` 只作为各配置状态 `capabilities` 对象中的唯一布尔字段，由完整、紧凑、speaker probe、确认、battery 和共享 fallback 路径声明；不进入 Report ID `0x11` 的 Host Action payload。speaker probe 只把专用 firmware 内容预算收紧为 16 字节并保留全部指标；含 recent power-cycle 的状态超限时，先保留 current power 并只省略四个 cycle 字段。BLE 最终附加编码必须在完整 UTF-8 JSON 不超过 512 字节时才生效。

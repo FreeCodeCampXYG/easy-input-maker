@@ -4,6 +4,7 @@
 
 ## 里程碑
 
+- [ ] 建立 Host Action v1 完整基线与学员起点：固化三层边界，验证 Maker `main`，创建只移除 Host Action 的课程分支与两个固定标签，并在隔离现场准备生产公共代码同步；不引入 OTA、不推送、不烧录。
 - [x] 完成 Host Action v1 烧录前只读修改范围审计：可靠基线为 `main@34087cd`，写入前 20 个 unstaged tracked、12 个 untracked 与 2 个 ignored 生成目录均逐文件／目录归类；八项禁止边界全部 PASS，无无关或无法解释项，`SAFE_TO_REQUEST_FLASH = YES`，但未访问设备或授予烧录。
 - [x] 完成 Host Action v1 软件侧总验收：重新配置后 CTest 实际发现／执行／通过 59/59/59、0 失败；ESP-IDF v5.5.5 对默认 `v2`／`esp32s3` 构建通过，应用镜像 `0x190470` 字节、App 分区剩余 `0x16fb90` 字节（48%）；未烧录、未运行 App 或真机验证。
 - [x] 完成 Host Action v1 第 08 步能力声明：完整、紧凑、speaker probe、确认、battery、BLE fallback 与最终发布变体都只包含一次布尔 `host_action_v1: true`；状态预算回归完成，定向 6/6、完整宿主 59/59 通过，最大最终 BLE 状态 512/512 字节；未运行 ESP-IDF 构建或实板验证。
@@ -27,6 +28,7 @@
 | T08 · Host Action v1 能力声明与 BLE 状态预算 | 固件开发 Agent／`project-flow-cy` | T02 冻结合同、T06 发送接入、现有状态 JSON 与 BLE 最终发布路径 | `flow/tasks/T08-Host-Action-v1-能力声明与BLE状态预算.md` | 所有发布状态只含一次布尔能力；speaker 与 power/cycle 预算规则通过；最终 UTF-8 状态不超过 512 字节；完整宿主测试通过；不提前做 App／真机验证 |
 | T09 · Host Action v1 软件侧总验收 | 固件开发 Agent／`project-flow-cy`／`esp-idf-cy` | T02／T03／T04／T06／T08 交接、当前工作区、CTest 实际清单、ESP-IDF v5.5.5 | `flow/tasks/T09-Host-Action-v1-软件侧总验收.md` | 重新发现／执行／通过的宿主测试数量一致且 0 失败；默认 `v2`／`esp32s3` 构建通过；记录产物、空间、警告、边界和未验证项 |
 | T10 · Host Action v1 烧录前只读修改范围审计 | 审计 Agent／`project-flow-cy`／`easyinput-board-cy` | `main@34087cd` 课程起点、全部 staged／unstaged／untracked／ignored 内容、冻结合同和 T09 总验收 | `flow/tasks/T10-Host-Action-v1-烧录前只读修改范围审计.md` | 每项变化有合理归属；硬件、身份、协议、隐私和生成物八项边界全部 PASS；只更新 `flow/`，不访问设备或烧录 |
+| T11 · Host Action v1 课程分支与公共基线同步 | 维护 Agent／`project-flow-cy`／`git-workflow-cy`／`course-design-cy`／`easyinput-board-cy`／`esp-idf-cy` | 已确认的三层边界、Maker 完整基线、产品侧进入 OTA 前的公共固件事实 | `flow/tasks/T11-Host-Action-v1-课程分支与公共基线同步.md` | `main` 与 starter 仅有课程目标差异；BLE 修复保留、OTA 排除；两边宿主测试和 ESP-IDF 5.5.5 构建通过；分支与固定标签可追溯；不推送、不烧录 |
 
 ## 实时进展 / 交接棒
 
