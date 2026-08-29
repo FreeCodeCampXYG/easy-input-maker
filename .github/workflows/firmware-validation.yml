@@ -25,3 +25,15 @@ jobs:
         with:
           esp_idf_version: v5.5.5
           target: esp32s3
+
+      - name: Upload firmware bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: easy-input-firmware-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            build/easy_input_keyboard.bin
+            build/flash_args
+            build/flasher_args.json
