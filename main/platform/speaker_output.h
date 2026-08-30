@@ -176,6 +176,9 @@ class SpeakerOutput {
   std::array<MusicCommand, kMusicCommandCapacity> music_commands_{};
   std::size_t music_command_head_ = 0;
   std::size_t music_command_count_ = 0;
+  std::atomic<std::uint8_t> music_pressed_mask_{0};
+  std::uint8_t music_applied_mask_ = 0;
+  std::atomic<bool> music_resync_pending_{false};
   std::atomic<bool> music_reset_pending_{false};
   std::atomic<bool> music_active_{false};
   std::atomic<std::uint8_t> music_volume_percent_{65};

@@ -20,4 +20,20 @@ std::uint8_t adjusted_music_volume_percent(std::uint8_t current,
       std::clamp(static_cast<int>(current) + delta_percent, 5, 100));
 }
 
+std::uint8_t updated_music_pressed_mask(std::uint8_t current,
+                                        std::size_t key_index,
+                                        bool pressed) {
+  if (key_index >= kMusicKeyCount) {
+    return current;
+  }
+  const auto bit = static_cast<std::uint8_t>(1U << key_index);
+  return pressed ? static_cast<std::uint8_t>(current | bit)
+                 : static_cast<std::uint8_t>(current & ~bit);
+}
+
+std::uint8_t music_pressed_mask_mismatch(std::uint8_t applied,
+                                         std::uint8_t desired) {
+  return static_cast<std::uint8_t>(applied ^ desired);
+}
+
 }  // namespace ai_keyboard

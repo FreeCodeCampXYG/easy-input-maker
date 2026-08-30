@@ -62,6 +62,7 @@ ctest --test-dir build-host --output-on-failure
 ## 5. 下一步
 
 - 要装到自己的开发板：阅读 [烧录与恢复](flash-and-recovery.md)。
+- 要排查可视化烧录工具：阅读 [可视化烧录器诊断流程](visual-flasher-diagnostics.md)。
 - 要用 AI 增加功能：阅读 [AI / Vibe Coding 教学路径](../teaching/ai-vibe-coding.md)。
 - 要提出想法或贡献修改：阅读 [中文共创与提交教程](../contributing/how-to-contribute.md)。
 - 要改灯光、音频、电源或 BOOT：先阅读 [硬件安全边界](../hardware/easyinput-v2-safety.md)。

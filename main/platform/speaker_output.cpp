@@ -522,10 +522,22 @@ bool SpeakerOutput::queue_music_note(std::size_t key_index, bool pressed) {
   if (key_index >= ai_keyboard::kMusicKeyCount || !music_active()) {
     return false;
   }
+  auto current_mask = music_pressed_mask_.load(std::memory_order_acquire);
+  while (true) {
+    const auto updated_mask = ai_keyboard::updated_music_pressed_mask(
+        current_mask, key_index, pressed);
+    if (music_pressed_mask_.compare_exchange_weak(
+            current_mask, updated_mask, std::memory_order_release,
+            std::memory_order_acquire)) {
+      break;
+    }
+  }
   portENTER_CRITICAL(&music_mux_);
   if (music_command_count_ == kMusicCommandCapacity) {
     portEXIT_CRITICAL(&music_mux_);
-    return false;
+    // release 不能因瞬时队列压力丢失；音频任务会在下一帧按最终键状态补齐。
+    music_resync_pending_.store(true, std::memory_order_release);
+    return true;
   }
   const auto tail = (music_command_head_ + music_command_count_) %
                     kMusicCommandCapacity;
@@ -1313,6 +1325,7 @@ void SpeakerOutput::consume_music_commands() {
     portEXIT_CRITICAL(&music_mux_);
     music_synth_ = {};
     music_synth_.apply_config(config);
+    music_applied_mask_ = 0U;
   }
 
   std::array<MusicCommand, kMusicCommandCapacity> commands{};
@@ -1332,6 +1345,31 @@ void SpeakerOutput::consume_music_commands() {
     } else {
       music_synth_.note_off(commands[index].key_index);
     }
+    music_applied_mask_ = ai_keyboard::updated_music_pressed_mask(
+        music_applied_mask_, commands[index].key_index, commands[index].pressed);
+  }
+
+  const auto desired_mask = music_pressed_mask_.load(std::memory_order_acquire);
+  const bool resync_requested = music_resync_pending_.exchange(
+      false, std::memory_order_acq_rel);
+  const auto mismatch = ai_keyboard::music_pressed_mask_mismatch(
+      music_applied_mask_, desired_mask);
+  if (resync_requested || mismatch != 0U) {
+    // 边沿仍决定连奏顺序；这里只用最终去抖状态修复满队列时遗漏的 release，
+    // 不使用超时截断，避免破坏长按、和弦和连贯弹奏。
+    for (std::size_t key_index = 0; key_index < ai_keyboard::kMusicKeyCount;
+         ++key_index) {
+      const auto bit = static_cast<std::uint8_t>(1U << key_index);
+      if ((mismatch & bit) == 0U) {
+        continue;
+      }
+      if ((desired_mask & bit) != 0U) {
+        music_synth_.note_on(key_index);
+      } else {
+        music_synth_.note_off(key_index);
+      }
+    }
+    music_applied_mask_ = desired_mask;
   }
 }
 
