@@ -19,6 +19,7 @@ constexpr const char* kPrefsBatteryFullKey = "bat_full_v1";
 constexpr const char* kPrefsBatteryFullKeyV3 = "bat_full_v3";
 constexpr const char* kPrefsGattSchemaRevisionKey = "gatt_rev_v1";
 constexpr const char* kPrefsHostPlatformKey = "host_os_v1";
+constexpr const char* kPrefsMusicConfigKey = "music_v1";
 
 const char* prefs_config_key() {
 #if defined(EASY_INPUT_BOARD_V2)
@@ -305,6 +306,48 @@ bool NvsConfigStore::save_config_and_host_platform(
              prefs_config_key(),
              static_cast<unsigned>(json.size()),
              ai_keyboard::host_platform_name(platform));
+  }
+  set_error(out_err, err);
+  return err == ESP_OK;
+}
+
+bool NvsConfigStore::load_music_config(
+    std::array<std::uint8_t, ai_keyboard::kMusicConfigPayloadLen>* payload,
+    esp_err_t* out_err) const {
+  if (payload == nullptr) {
+    set_error(out_err, ESP_ERR_INVALID_ARG);
+    return false;
+  }
+  nvs_handle_t handle = 0;
+  esp_err_t err = nvs_open(kPrefsNamespace, NVS_READONLY, &handle);
+  std::size_t length = payload->size();
+  if (err == ESP_OK) {
+    err = nvs_get_blob(handle, kPrefsMusicConfigKey, payload->data(), &length);
+  }
+  if (handle != 0) {
+    nvs_close(handle);
+  }
+  if (err != ESP_OK || length != payload->size()) {
+    set_error(out_err, err == ESP_OK ? ESP_ERR_INVALID_SIZE : err);
+    return false;
+  }
+  set_error(out_err, ESP_OK);
+  return true;
+}
+
+bool NvsConfigStore::save_music_config(
+    const std::array<std::uint8_t, ai_keyboard::kMusicConfigPayloadLen>& payload,
+    esp_err_t* out_err) const {
+  nvs_handle_t handle = 0;
+  esp_err_t err = nvs_open(kPrefsNamespace, NVS_READWRITE, &handle);
+  if (err == ESP_OK) {
+    err = nvs_set_blob(handle, kPrefsMusicConfigKey, payload.data(), payload.size());
+  }
+  if (err == ESP_OK) {
+    err = nvs_commit(handle);
+  }
+  if (handle != 0) {
+    nvs_close(handle);
   }
   set_error(out_err, err);
   return err == ESP_OK;

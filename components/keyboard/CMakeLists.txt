@@ -28,6 +28,7 @@ idf_component_register(
     "src/keyboard_snapshot_delivery.cpp"
     "src/keymap.cpp"
     "src/music_synth.cpp"
+    "src/music_live_control.cpp"
     "src/music_config_protocol.cpp"
     "src/platform_selection.cpp"
     "src/peripheral_power_lease.cpp"

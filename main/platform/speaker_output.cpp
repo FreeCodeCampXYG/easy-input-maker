@@ -13,6 +13,7 @@
 #endif
 #include "esp_log.h"
 #include "keyboard/board_pins.h"
+#include "keyboard/music_live_control.h"
 #include "keyboard/speaker_audio_contract.h"
 
 namespace easy_input {
@@ -463,6 +464,99 @@ bool SpeakerOutput::request_diagnostic_tone() {
   return true;
 }
 
+bool SpeakerOutput::request_music() {
+  if (!ready() || worker_task_ == nullptr || tx_channel_ == nullptr) {
+    return false;
+  }
+  bool expected = false;
+  if (!music_active_.compare_exchange_strong(
+          expected, true, std::memory_order_acq_rel,
+          std::memory_order_acquire)) {
+    return true;
+  }
+
+  const auto ticket = playback_.request();
+  if (!ticket.accepted || !audio_io_arbiter_->try_begin_speaker(ticket.generation)) {
+    if (ticket.accepted) {
+      playback_.cancel(ticket.generation);
+      playback_.mark_drained(ticket.generation);
+    }
+    music_active_.store(false, std::memory_order_release);
+    return false;
+  }
+
+  reserved_generation_ = ticket.generation;
+  completed_reservation_generation_ = 0U;
+  clock_primed_ = false;
+  power_ready_sent_ = false;
+  cancel_generation_.store(0U, std::memory_order_release);
+  clock_ready_generation_.store(0U, std::memory_order_release);
+  power_ready_generation_.store(0U, std::memory_order_release);
+  started_generation_.store(0U, std::memory_order_release);
+  completed_result_.store(
+      static_cast<std::uint8_t>(WorkerResult::None),
+      std::memory_order_relaxed);
+  completed_generation_.store(0U, std::memory_order_release);
+  music_reset_pending_.store(true, std::memory_order_release);
+  requested_kind_.store(
+      static_cast<std::uint8_t>(RequestKind::Music),
+      std::memory_order_release);
+  requested_generation_.store(ticket.generation, std::memory_order_release);
+  xTaskNotifyGive(worker_task_);
+  return true;
+}
+
+bool SpeakerOutput::set_music_config(const ai_keyboard::MusicConfig& config) {
+  if (!ai_keyboard::validate_music_config(config)) {
+    return false;
+  }
+  portENTER_CRITICAL(&music_mux_);
+  music_config_ = config;
+  portEXIT_CRITICAL(&music_mux_);
+  // 配置在唯一 I2S owner 的下一帧切换，避免主任务直接触碰合成器状态造成并发撕裂。
+  music_reset_pending_.store(true, std::memory_order_release);
+  return true;
+}
+
+bool SpeakerOutput::queue_music_note(std::size_t key_index, bool pressed) {
+  if (key_index >= ai_keyboard::kMusicKeyCount || !music_active()) {
+    return false;
+  }
+  portENTER_CRITICAL(&music_mux_);
+  if (music_command_count_ == kMusicCommandCapacity) {
+    portEXIT_CRITICAL(&music_mux_);
+    return false;
+  }
+  const auto tail = (music_command_head_ + music_command_count_) %
+                    kMusicCommandCapacity;
+  music_commands_[tail] = {
+      static_cast<std::uint8_t>(key_index), pressed};
+  ++music_command_count_;
+  portEXIT_CRITICAL(&music_mux_);
+  return true;
+}
+
+std::uint8_t SpeakerOutput::adjust_music_volume(int delta_percent) {
+  auto current = music_volume_percent_.load(std::memory_order_acquire);
+  while (true) {
+    const auto adjusted = ai_keyboard::adjusted_music_volume_percent(
+        current, delta_percent);
+    if (music_volume_percent_.compare_exchange_weak(
+            current, adjusted, std::memory_order_acq_rel,
+            std::memory_order_acquire)) {
+      return adjusted;
+    }
+  }
+}
+
+std::uint8_t SpeakerOutput::music_volume_percent() const {
+  return music_volume_percent_.load(std::memory_order_acquire);
+}
+
+bool SpeakerOutput::music_active() const {
+  return music_active_.load(std::memory_order_acquire);
+}
+
 #if defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
 bool SpeakerOutput::submit_open_asset_request(
     std::uint32_t generation) {
@@ -837,6 +931,9 @@ void SpeakerOutput::run() {
       asset_decoder_.close();
     }
 #endif
+    if (request_kind == RequestKind::Music) {
+      music_active_.store(false, std::memory_order_release);
+    }
     publish_completed(generation, result);
   }
 }
@@ -1075,6 +1172,14 @@ SpeakerOutput::WorkerResult SpeakerOutput::play_sound(
   if (asset_request) {
     err = play_asset_frames(
         generation, frame.data(), frame.size());
+  } else if (request_kind == RequestKind::Music) {
+    err = play_music_frames(generation, frame.data(), frame.size());
+  } else
+#endif
+  {
+#if !defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
+  if (request_kind == RequestKind::Music) {
+    err = play_music_frames(generation, frame.data(), frame.size());
   } else
 #endif
   {
@@ -1125,6 +1230,7 @@ SpeakerOutput::WorkerResult SpeakerOutput::play_sound(
     }
   }
 #endif
+  }
   }
 
   bool cancellation_seen = cancelled(generation);
@@ -1197,6 +1303,65 @@ SpeakerOutput::WorkerResult SpeakerOutput::play_sound(
     return WorkerResult::Cancelled;
   }
   return WorkerResult::Succeeded;
+}
+
+void SpeakerOutput::consume_music_commands() {
+  if (music_reset_pending_.exchange(false, std::memory_order_acq_rel)) {
+    ai_keyboard::MusicConfig config;
+    portENTER_CRITICAL(&music_mux_);
+    config = music_config_;
+    portEXIT_CRITICAL(&music_mux_);
+    music_synth_ = {};
+    music_synth_.apply_config(config);
+  }
+
+  std::array<MusicCommand, kMusicCommandCapacity> commands{};
+  std::size_t count = 0;
+  portENTER_CRITICAL(&music_mux_);
+  while (count < music_command_count_) {
+    commands[count] = music_commands_[music_command_head_];
+    music_command_head_ = (music_command_head_ + 1U) % kMusicCommandCapacity;
+    ++count;
+  }
+  music_command_count_ = 0;
+  portEXIT_CRITICAL(&music_mux_);
+
+  for (std::size_t index = 0; index < count; ++index) {
+    if (commands[index].pressed) {
+      music_synth_.note_on(commands[index].key_index);
+    } else {
+      music_synth_.note_off(commands[index].key_index);
+    }
+  }
+}
+
+esp_err_t SpeakerOutput::play_music_frames(std::uint32_t generation,
+                                           std::int16_t* frame,
+                                           std::size_t frame_capacity) {
+  if (frame == nullptr || frame_capacity != kSamplesPerFrame) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  while (!cancelled(generation)) {
+    consume_music_commands();
+    music_synth_.render(frame, frame_capacity);
+    const auto volume = music_volume_percent();
+    for (std::size_t index = 0; index < frame_capacity; ++index) {
+      frame[index] = static_cast<std::int16_t>(
+          (static_cast<std::int32_t>(frame[index]) * volume) / 100);
+    }
+    const auto write_result = write_samples(frame, frame_capacity);
+    if (write_result != ESP_OK) {
+      record_probe_state(ai_keyboard::SpeakerProbeStage::Write,
+                         ai_keyboard::SpeakerProbeResult::Running,
+                         ai_keyboard::SpeakerProbeError::Write,
+                         static_cast<std::int32_t>(write_result), generation);
+      return write_result;
+    }
+    if (!music_synth_.active()) {
+      return ESP_OK;
+    }
+  }
+  return ESP_OK;
 }
 
 #if defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)

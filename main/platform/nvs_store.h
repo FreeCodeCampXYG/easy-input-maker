@@ -1,10 +1,12 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 
 #include "esp_err.h"
 #include "keyboard/keymap.h"
+#include "keyboard/music_config_protocol.h"
 
 namespace easy_input {
 
@@ -29,6 +31,12 @@ class NvsConfigStore {
   bool save_config_and_host_platform(const std::string& json,
                                      ai_keyboard::HostPlatform platform,
                                      esp_err_t* out_err = nullptr) const;
+  bool load_music_config(
+      std::array<std::uint8_t, ai_keyboard::kMusicConfigPayloadLen>* payload,
+      esp_err_t* out_err = nullptr) const;
+  bool save_music_config(
+      const std::array<std::uint8_t, ai_keyboard::kMusicConfigPayloadLen>& payload,
+      esp_err_t* out_err = nullptr) const;
 };
 
 }  // namespace easy_input

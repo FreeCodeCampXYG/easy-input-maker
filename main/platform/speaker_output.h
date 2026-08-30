@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -9,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "keyboard/audio_io_arbiter.h"
+#include "keyboard/music_synth.h"
 #include "keyboard/speaker_playback.h"
 #include "keyboard/speaker_probe_status.h"
 #if defined(EASY_INPUT_SPEAKER_OPUS_DIAGNOSTIC)
@@ -34,6 +36,15 @@ class SpeakerOutput {
   // Stage-1 only: one fixed, low-volume PCM tone. Product sounds and their
   // transport are intentionally not part of this diagnostic interface.
   bool request_diagnostic_tone();
+
+  // Music stays inside the sole speaker owner. Input only publishes compact
+  // note edges; the I2S worker consumes them before rendering each PCM frame.
+  bool request_music();
+  bool set_music_config(const ai_keyboard::MusicConfig& config);
+  bool queue_music_note(std::size_t key_index, bool pressed);
+  std::uint8_t adjust_music_volume(int delta_percent);
+  std::uint8_t music_volume_percent() const;
+  bool music_active() const;
 
 #if defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
   // Starts one already-resolved, bank-pinned asset. The caller retains and
@@ -78,6 +89,7 @@ class SpeakerOutput {
     None,
     Diagnostic,
     Asset,
+    Music,
   };
 
   enum class WorkerResult : std::uint8_t {
@@ -92,6 +104,10 @@ class SpeakerOutput {
   void run();
   WorkerResult play_sound(std::uint32_t generation,
                           RequestKind request_kind);
+  esp_err_t play_music_frames(std::uint32_t generation,
+                              std::int16_t* frame,
+                              std::size_t frame_capacity);
+  void consume_music_commands();
 #if defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
   bool submit_open_asset_request(std::uint32_t generation);
   esp_err_t prepare_asset_first_frame(std::uint32_t generation,
@@ -146,6 +162,24 @@ class SpeakerOutput {
   std::uint32_t microphone_generation() const;
 
   ai_keyboard::SpeakerPlayback playback_;
+  struct MusicCommand {
+    std::uint8_t key_index = 0;
+    bool pressed = false;
+  };
+  static constexpr std::size_t kMusicCommandCapacity = 16;
+  ai_keyboard::MusicSynth music_synth_;
+  ai_keyboard::MusicConfig music_config_ = [] {
+    ai_keyboard::MusicConfig config;
+    config.enabled = true;
+    return config;
+  }();
+  std::array<MusicCommand, kMusicCommandCapacity> music_commands_{};
+  std::size_t music_command_head_ = 0;
+  std::size_t music_command_count_ = 0;
+  std::atomic<bool> music_reset_pending_{false};
+  std::atomic<bool> music_active_{false};
+  std::atomic<std::uint8_t> music_volume_percent_{65};
+  portMUX_TYPE music_mux_ = portMUX_INITIALIZER_UNLOCKED;
 #if defined(EASY_INPUT_SPEAKER_OPUS_DIAGNOSTIC)
   SpeakerOpusProbe opus_probe_;
 #endif

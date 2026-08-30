@@ -32,6 +32,8 @@
 #include "keyboard/hid_report_queue.h"
 #include "keyboard/keyboard_snapshot_delivery.h"
 #include "keyboard/keymap.h"
+#include "keyboard/music_live_control.h"
+#include "keyboard/music_config_protocol.h"
 #include "keyboard/power_cycle.h"
 #include "keyboard/power_policy.h"
 #include "keyboard/platform_selection.h"
@@ -173,6 +175,8 @@ struct AppContext {
 #if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
     defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
   easy_input::SpeakerOutput speaker;
+  // 钢琴模式默认拦截八个实体键，避免同一次按下既发声又向主机发送旧键盘动作。
+  bool music_mode_enabled = true;
 #endif
 #if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC)
   bool speaker_probe_pending = false;
@@ -2448,7 +2452,7 @@ void service_speaker(AppContext* app) {
   const bool playback_allowed =
       !app->audio.streaming() &&
       !app->audio_io_arbiter.microphone_requested() &&
-      cold_boot_audio_allowed;
+      (cold_boot_audio_allowed || app->speaker.music_active());
   const auto speaker_events = app->speaker.poll(playback_allowed);
   if (speaker_events.first_pcm()) {
     observe_cold_boot_first_pcm(
@@ -2833,6 +2837,44 @@ void flush_input_led_feedback(AppContext* app) {
   app->leds.show_input_event(input, phase, queued_ms);
 }
 
+#if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
+    defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
+bool dispatch_music_key(AppContext* app,
+                        ai_keyboard::InputId input,
+                        ai_keyboard::InputPhase phase) {
+  const auto key_index = ai_keyboard::music_key_index_for_input(input);
+  if (app == nullptr || !app->music_mode_enabled || !key_index) {
+    return false;
+  }
+  if (!app->speaker.ready()) {
+    if (!app->speaker.shutdown_complete() ||
+        app->speaker.begin(app->platform_task, &app->audio_io_arbiter) !=
+            ESP_OK) {
+      return false;
+    }
+  }
+  if (phase == ai_keyboard::InputPhase::Pressed &&
+      !app->speaker.request_music()) {
+    return false;
+  }
+  return app->speaker.queue_music_note(
+      *key_index, phase == ai_keyboard::InputPhase::Pressed);
+}
+
+bool dispatch_music_volume(AppContext* app,
+                           const easy_input::InputEvent& event) {
+  if (app == nullptr || !app->music_mode_enabled || event.encoder_step == 0 ||
+      app->platform_selection.active()) {
+    return false;
+  }
+  constexpr int kMusicVolumePercentPerDetent = 5;
+  const auto volume = app->speaker.adjust_music_volume(
+      event.encoder_step * kMusicVolumePercentPerDetent);
+  ESP_LOGI(kTag, "music volume=%u%%", static_cast<unsigned>(volume));
+  return true;
+}
+#endif
+
 bool handle_input_event(const easy_input::InputEvent& event, void* context) {
   auto* app = static_cast<AppContext*>(context);
   if (app == nullptr) {
@@ -2889,6 +2931,12 @@ bool handle_input_event(const easy_input::InputEvent& event, void* context) {
       ESP_LOGI(kTag, "%s consumed while awaiting platform selection", name);
       return true;
     }
+#if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
+    defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
+    if (dispatch_music_volume(app, event)) {
+      return true;
+    }
+#endif
     return dispatch_encoder_rotation(app, event);
   }
 
@@ -2916,6 +2964,13 @@ bool handle_input_event(const easy_input::InputEvent& event, void* context) {
              phase_name(event.phase));
     return true;
   }
+
+#if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
+    defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
+  if (dispatch_music_key(app, event.input, event.phase)) {
+    return true;
+  }
+#endif
 
   const auto& action = app->config_state.keymap().action_for(event.input);
   const auto firmware_event =
@@ -3015,6 +3070,59 @@ void send_hid_config_ack(AppContext* app,
            static_cast<unsigned>(phase_code),
            static_cast<unsigned>(bytes));
 }
+
+#if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
+    defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
+bool apply_music_config(AppContext* app,
+                        const ai_keyboard::MusicConfig& config,
+                        const char* source) {
+  if (app == nullptr || !app->speaker.set_music_config(config)) {
+    return false;
+  }
+  // 音乐开关先于输入分发更新，避免配置关闭后旧按键路径仍被钢琴拦截。
+  app->music_mode_enabled = config.enabled;
+  ESP_LOGI(kTag, "MUSIC_CONFIG applied source=%s enabled=%u root=%d bpm=%u",
+           source, config.enabled ? 1U : 0U, static_cast<int>(config.root_midi),
+           static_cast<unsigned>(config.bpm));
+  return true;
+}
+
+void load_stored_music_config(AppContext* app) {
+  std::array<std::uint8_t, ai_keyboard::kMusicConfigPayloadLen> payload{};
+  esp_err_t err = ESP_OK;
+  if (!app->config_store.load_music_config(&payload, &err)) {
+    if (err != ESP_ERR_NVS_NOT_FOUND) {
+      ESP_LOGW(kTag, "MUSIC_CONFIG load skipped: %s", esp_err_to_name(err));
+    }
+    return;
+  }
+  const auto config = ai_keyboard::decode_music_config(payload.data(), payload.size());
+  if (!config || !apply_music_config(app, *config, "boot")) {
+    ESP_LOGW(kTag, "MUSIC_CONFIG stored payload rejected");
+  }
+}
+
+void apply_pending_music_config(AppContext* app) {
+  ai_keyboard::MusicConfig config;
+  std::uint32_t endpoint_epoch = 0;
+  if (!app->usb.take_pending_music_config(&config, &endpoint_epoch)) {
+    return;
+  }
+  std::array<std::uint8_t, ai_keyboard::kMusicConfigPayloadLen> payload{};
+  if (!ai_keyboard::encode_music_config(config, &payload)) {
+    return;
+  }
+  esp_err_t save_err = ESP_OK;
+  const bool saved = app->config_store.save_music_config(payload, &save_err);
+  const bool applied = saved && apply_music_config(app, config, "usb");
+  app->usb.send_config_ack_for_epoch(
+      0x16, applied, static_cast<std::uint16_t>(payload.size()), 0U, saved,
+      endpoint_epoch);
+  if (!applied) {
+    ESP_LOGW(kTag, "MUSIC_CONFIG save/apply failed: %s", esp_err_to_name(save_err));
+  }
+}
+#endif
 
 void apply_pending_config(AppContext* app) {
   std::string json;
@@ -3638,6 +3746,10 @@ extern "C" void app_main(void) {
   }
   sync_power_sample(&app, millis(), true);
   load_stored_config(&app);
+#if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
+    defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
+  load_stored_music_config(&app);
+#endif
 #if defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
   // Keep the microphone's frozen resource pool first. The platform loop then
   // starts local Store/USB and the required Wi-Fi sound service before the
@@ -3710,6 +3822,10 @@ extern "C" void app_main(void) {
       app.audio.cancel_wifi_release_for_device_activity();
     }
     apply_pending_config(&app);
+#if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
+    defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
+    apply_pending_music_config(&app);
+#endif
     apply_pending_agent_status(&app, millis());
     reconcile_keyboard_transport_lifetimes(&app);
     // BLE profile preparation above may take long enough for both edges of a
