@@ -89,6 +89,11 @@ FirmwareEvent event_for_action(const Action& action,
       return command_event("next_profile", phase);
     case ActionKind::Settings:
       return command_event("settings", phase);
+    case ActionKind::HostAction:
+      if (phase == InputPhase::Released) {
+        return {};
+      }
+      return {FirmwareEventKind::HostAction, action.hotkey};
     case ActionKind::ScrollAxisToggle:
     case ActionKind::TextCaretSelect:
       return {};

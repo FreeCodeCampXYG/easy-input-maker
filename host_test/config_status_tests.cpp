@@ -1,9 +1,11 @@
 #include <cassert>
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <string>
 
 #include "keyboard/config_status.h"
+#include "keyboard/ble_status_wire.h"
 
 namespace {
 
@@ -49,6 +51,30 @@ bool is_valid_utf8(const std::string& value) {
   return true;
 }
 
+std::size_t count_occurrences(const std::string& value,
+                              const std::string& needle) {
+  std::size_t count = 0;
+  std::size_t offset = 0;
+  while ((offset = value.find(needle, offset)) != std::string::npos) {
+    ++count;
+    offset += needle.size();
+  }
+  return count;
+}
+
+void assert_host_action_v1_capability(const std::string& json) {
+  constexpr char kCapability[] = R"("host_action_v1":true)";
+  assert(count_occurrences(json, kCapability) == 1);
+  assert(json.find(R"("host_action_v1":"true")") == std::string::npos);
+  assert(json.find(R"("host_action_v1":false)") == std::string::npos);
+  const auto capabilities_begin = json.find(R"("capabilities":{)");
+  assert(capabilities_begin != std::string::npos);
+  const auto capabilities_end = json.find('}', capabilities_begin);
+  const auto capability = json.find(kCapability, capabilities_begin);
+  assert(capability != std::string::npos);
+  assert(capability < capabilities_end);
+}
+
 void assert_sync_core(const std::string& json,
                       const std::string& firmware,
                       const std::string& target_platform,
@@ -59,11 +85,12 @@ void assert_sync_core(const std::string& json,
   assert(json.find(R"("target_platform":")" + target_platform + R"(")") !=
          std::string::npos);
   const auto expected_capabilities = !legacy_capabilities
-      ? R"("capabilities":{"config_max_bytes":2048})"
+      ? R"("capabilities":{"config_max_bytes":2048,"host_action_v1":true})"
       : (usb_management
-             ? R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048,"usb_management_v1":true})"
-             : R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048})");
+             ? R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048,"usb_management_v1":true,"host_action_v1":true})"
+             : R"("capabilities":{"semantic_actions":true,"offline_platform_switch":true,"config_max_bytes":2048,"host_action_v1":true})");
   assert(json.find(expected_capabilities) != std::string::npos);
+  assert_host_action_v1_capability(json);
   assert(json.find(saved ? R"("saved":true)" : R"("saved":false)") !=
          std::string::npos);
 }
@@ -813,6 +840,105 @@ void speaker_probe_worst_case_is_versioned_complete_and_gatt_safe() {
   assert(json.size() <= ai_keyboard::kConfigStatusGattSafeLen);
 }
 
+std::string final_ble_wire_for_status(const std::string& json, bool battery) {
+  if (battery) {
+    return ai_keyboard::append_ble_status_wire_json(
+        json, {true, true, UINT16_MAX, UINT16_MAX, UINT16_MAX});
+  }
+  return ai_keyboard::append_ble_detailed_status_wire_json(
+      json,
+      {true,
+       true,
+       UINT16_MAX,
+       true,
+       UINT16_MAX,
+       UINT16_MAX,
+       UINT16_MAX,
+       std::numeric_limits<std::int32_t>::min(),
+       std::numeric_limits<std::uint32_t>::max(),
+       std::numeric_limits<std::uint32_t>::max(),
+       std::numeric_limits<std::uint32_t>::max(),
+       std::numeric_limits<std::uint32_t>::max(),
+       std::numeric_limits<std::uint32_t>::max(),
+       std::numeric_limits<std::uint32_t>::max(),
+       std::numeric_limits<std::uint32_t>::max(),
+       std::numeric_limits<std::uint32_t>::max(),
+       std::numeric_limits<std::uint32_t>::max(),
+       std::numeric_limits<std::uint32_t>::max(),
+       std::numeric_limits<std::uint32_t>::max()});
+}
+
+void all_published_status_variants_keep_host_action_and_ble_budget() {
+  ai_keyboard::ConfigStatusSnapshot full;
+  full.firmware = "v";
+  full.phase = "status";
+  full.status = "ok";
+  full.saved = true;
+
+  ai_keyboard::ConfigStatusSnapshot normal;
+  normal.firmware = std::string(40, 'f');
+  normal.phase = "status";
+  normal.status = "ready";
+  normal.saved = true;
+  normal.power = {"awake", 1'800'123, "keyboard_mic", "deep_key", 4,
+                  false, 9, 1'800'000, true, "deep_key"};
+
+  ai_keyboard::ConfigStatusSnapshot battery = normal;
+  battery.phase = "battery";
+  battery.battery = {std::numeric_limits<std::uint16_t>::max(),
+                     "charging",
+                     std::numeric_limits<std::uint32_t>::max(),
+                     true};
+
+  ai_keyboard::SpeakerProbeSnapshot speaker;
+  speaker.present = true;
+  speaker.stage = ai_keyboard::SpeakerProbeStage::Done;
+  speaker.result = ai_keyboard::SpeakerProbeResult::Cancelled;
+  speaker.error = ai_keyboard::SpeakerProbeError::Unknown;
+  speaker.generation = std::numeric_limits<std::uint32_t>::max();
+  speaker.raw_error = std::numeric_limits<std::int32_t>::min();
+  speaker.microphone_generation = std::numeric_limits<std::uint32_t>::max();
+  speaker.first_submit_us = std::numeric_limits<std::uint32_t>::max();
+  speaker.decode_total_us = std::numeric_limits<std::uint32_t>::max();
+  speaker.decode_max_us = std::numeric_limits<std::uint32_t>::max();
+  speaker.decoded_frames = std::numeric_limits<std::uint32_t>::max();
+  speaker.decoded_pcm_bytes = std::numeric_limits<std::uint32_t>::max();
+  speaker.stack_high_water_bytes = std::numeric_limits<std::uint32_t>::max();
+  speaker.heap_begin_free = std::numeric_limits<std::uint32_t>::max();
+  speaker.heap_terminal_free = std::numeric_limits<std::uint32_t>::max();
+  speaker.heap_largest_block = std::numeric_limits<std::uint32_t>::max();
+  speaker.heap_minimum_free = std::numeric_limits<std::uint32_t>::max();
+  speaker.decoded_abs_peak = std::numeric_limits<std::uint32_t>::max();
+  speaker.decoded_rms_permille = std::numeric_limits<std::uint32_t>::max();
+  ai_keyboard::ConfigStatusSnapshot probe = normal;
+  probe.phase = "spk_probe";
+  probe.speaker = &speaker;
+
+  struct StatusVariant {
+    const char* name;
+    std::string source;
+    std::size_t expected_wire_bytes;
+    bool battery;
+  };
+  const std::array<StatusVariant, 6> variants{{
+      {"full", ai_keyboard::build_config_status_json(full), 378, false},
+      {"compact_cycle", ai_keyboard::build_config_status_json(normal), 465, false},
+      {"speaker_probe", ai_keyboard::build_config_status_json(probe), 502, false},
+      {"confirmation", ai_keyboard::build_config_confirmation_status_json(normal), 420, false},
+      {"battery", ai_keyboard::build_config_status_json(battery), 461, true},
+      {"fallback", ai_keyboard::kConfigStatusFallbackJson, 241, false},
+  }};
+
+  for (const auto& variant : variants) {
+    const auto wire = final_ble_wire_for_status(
+        variant.source, variant.battery);
+    assert_host_action_v1_capability(variant.source);
+    assert_host_action_v1_capability(wire);
+    assert(wire.size() == variant.expected_wire_bytes);
+    assert(wire.size() <= ai_keyboard::kConfigStatusGattSafeLen);
+  }
+}
+
 int main() {
   builds_compact_status_json();
   includes_compact_board_diagnostics_without_audio_status();
@@ -831,5 +957,6 @@ int main() {
   legacy_status_omits_optional_speaker_probe();
   battery_status_keeps_current_power_before_optional_speaker_evidence();
   speaker_probe_worst_case_is_versioned_complete_and_gatt_safe();
+  all_published_status_variants_keep_host_action_and_ble_budget();
   return 0;
 }

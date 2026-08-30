@@ -18,6 +18,7 @@
 #include "keyboard/ble_persistence_policy.h"
 #include "keyboard/ble_status_wire.h"
 #include "keyboard/config_status.h"
+#include "keyboard/host_action_protocol.h"
 #include "keyboard/hid_keycode.h"
 #include "platform/nvs_store.h"
 #include "sdkconfig.h"
@@ -72,6 +73,8 @@ static_assert(kAppCommandHeaderLen ==
               ai_keyboard::kFixedTextAppCommandHeaderLen);
 static_assert(kAppCommandChunkDataLen ==
               ai_keyboard::kFixedTextAppCommandChunkDataLen);
+static_assert(ai_keyboard::kHostActionPayloadLen ==
+              kAppCommandReportPayloadLen);
 static_assert(ai_keyboard::kConfigMaxJsonLen == 2048);
 static_assert(sizeof(ai_keyboard::kConfigStatusFallbackJson) - 1 <=
               ai_keyboard::kConfigStatusGattSafeLen);
@@ -1949,6 +1952,9 @@ bool BleHidTransport::send_firmware_event_for_owner(
                static_cast<unsigned>(chunks));
       return send_fixed_text_command(event.value, expected_owner);
     }
+    case ai_keyboard::FirmwareEventKind::HostAction:
+      ESP_LOGI(kTag, "ACTION %s host_action", source);
+      return send_host_action_app_command(event.value, expected_owner);
     case ai_keyboard::FirmwareEventKind::AppCommand:
       ESP_LOGI(kTag, "ACTION %s app_command", source);
       return false;
@@ -3579,6 +3585,23 @@ bool BleHidTransport::send_app_command_report(std::uint8_t command_kind,
                            report.size(),
                            "app command",
                            report_class,
+                           expected_owner);
+}
+
+bool BleHidTransport::send_host_action_app_command(
+    std::string_view host_action,
+    ai_keyboard::BleOwnerToken expected_owner) {
+  // 共享编码统一校验和字节布局，BLE 仅绑定当前 owner，避免跨连接重放或双发。
+  std::array<std::uint8_t, ai_keyboard::kHostActionPayloadLen> payload{};
+  if (!ai_keyboard::encode_host_action_app_command(host_action, &payload)) {
+    ESP_LOGW(kTag, "APP_COMMAND host_action rejected");
+    return false;
+  }
+  return send_input_report(kReportIdAppCommand,
+                           payload.data(),
+                           payload.size(),
+                           "host action",
+                           ai_keyboard::HidReportClass::AppCommand,
                            expected_owner);
 }
 

@@ -191,6 +191,9 @@ class UsbHidTransport {
                                       std::size_t len,
                                       std::size_t reserved_free_slots,
                                       std::uint32_t expected_epoch);
+  bool queue_app_command_payload_for_epoch(
+      const std::array<std::uint8_t, 63>& payload,
+      std::uint32_t expected_epoch);
   bool send_app_command_report(std::uint8_t command_kind,
                                std::uint8_t chunk_index,
                                std::uint8_t total_chunks,

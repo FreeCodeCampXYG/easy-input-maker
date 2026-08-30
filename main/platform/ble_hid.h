@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include "esp_err.h"
 #include "esp_hidd.h"
@@ -204,6 +205,9 @@ class BleHidTransport {
                                ai_keyboard::BleOwnerToken expected_owner = {},
                                ai_keyboard::HidReportClass report_class =
                                    ai_keyboard::HidReportClass::AppCommand);
+  bool send_host_action_app_command(
+      std::string_view host_action,
+      ai_keyboard::BleOwnerToken expected_owner);
   bool send_fixed_text_command(
       const std::string& text,
       ai_keyboard::BleOwnerToken expected_owner = {});

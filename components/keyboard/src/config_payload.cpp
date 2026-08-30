@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "keyboard/fixed_text_protocol.h"
+#include "keyboard/host_action_protocol.h"
 
 namespace ai_keyboard {
 namespace {
@@ -542,6 +543,13 @@ std::optional<ActionKind> named_action_kind(const std::string& action) {
 
 ConfigParseStatus parse_action(std::string_view value, Action* action) {
   if (const auto named = string_value(value); named.has_value()) {
+    if (named->rfind(kHostActionPrefix, 0) == 0) {
+      if (!is_canonical_host_action(*named)) {
+        return ConfigParseStatus::UnknownAction;
+      }
+      *action = {ActionKind::HostAction, *named};
+      return ConfigParseStatus::Ok;
+    }
     const auto kind = named_action_kind(*named);
     if (!kind.has_value()) {
       return ConfigParseStatus::UnknownAction;

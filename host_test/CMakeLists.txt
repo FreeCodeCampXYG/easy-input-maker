@@ -42,12 +42,15 @@ add_library(easy_input_keyboard_core
   ../components/keyboard/src/encoder.cpp
   ../components/keyboard/src/encoder_press_gesture.cpp
   ../components/keyboard/src/held_keyboard_state.cpp
+  ../components/keyboard/src/host_action_protocol.cpp
   ../components/keyboard/src/hid_report_queue.cpp
   ../components/keyboard/src/hid_keycode.cpp
   ../components/keyboard/src/input_feedback.cpp
   ../components/keyboard/src/input_test.cpp
   ../components/keyboard/src/keyboard_snapshot_delivery.cpp
   ../components/keyboard/src/keymap.cpp
+  ../components/keyboard/src/music_synth.cpp
+  ../components/keyboard/src/music_config_protocol.cpp
   ../components/keyboard/src/platform_selection.cpp
   ../components/keyboard/src/peripheral_power_lease.cpp
   ../components/keyboard/src/power_cycle.cpp
@@ -302,6 +305,22 @@ add_test(NAME speaker_assets_runtime_tests COMMAND speaker_assets_runtime_tests)
 add_keyboard_host_test(gatt_status_snapshot_tests)
 add_keyboard_host_test(keyboard_snapshot_delivery_tests)
 add_keyboard_host_test(keymap_tests)
+add_keyboard_host_test(music_synth_tests)
+add_keyboard_host_test(music_config_protocol_tests)
+add_executable(host_action_protocol_tests host_action_tests.cpp)
+target_link_libraries(host_action_protocol_tests PRIVATE easy_input_keyboard_core)
+enable_keyboard_host_test_assertions(host_action_protocol_tests)
+add_test(NAME host_action_protocol_tests COMMAND host_action_protocol_tests)
+
+add_executable(host_action_key_bindings_tests host_action_tests.cpp)
+target_link_libraries(host_action_key_bindings_tests PRIVATE easy_input_keyboard_core)
+enable_keyboard_host_test_assertions(host_action_key_bindings_tests)
+add_test(NAME host_action_key_bindings_tests COMMAND host_action_key_bindings_tests)
+
+add_executable(host_action_capability_status_tests config_status_tests.cpp)
+target_link_libraries(host_action_capability_status_tests PRIVATE easy_input_keyboard_core)
+enable_keyboard_host_test_assertions(host_action_capability_status_tests)
+add_test(NAME host_action_capability_status_tests COMMAND host_action_capability_status_tests)
 add_keyboard_host_test(platform_selection_tests)
 add_keyboard_host_test(peripheral_power_lease_tests)
 add_keyboard_host_test(power_cycle_tests)

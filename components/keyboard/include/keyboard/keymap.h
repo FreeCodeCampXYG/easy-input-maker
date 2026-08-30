@@ -39,6 +39,7 @@ enum class ActionKind {
   PreviousProfile,
   NextProfile,
   Settings,
+  HostAction,
   ScrollAxisToggle,
   TextCaretSelect,
   SelectAll,
@@ -81,6 +82,7 @@ enum class FirmwareEventKind {
   HidTap,
   FixedText,
   AppCommand,
+  HostAction,
 };
 
 struct FirmwareEvent {

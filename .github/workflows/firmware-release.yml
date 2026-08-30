@@ -1,0 +1,74 @@
+name: Firmware Release
+
+on:
+  push:
+    tags: ['firmware-v*']
+
+permissions:
+  contents: write
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: firmware-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build host tests
+        run: cmake -S host_test -B build-host -DCMAKE_BUILD_TYPE=Debug
+      - name: Compile host tests
+        run: cmake --build build-host --parallel
+      - name: Run host tests
+        run: ctest --test-dir build-host --output-on-failure
+      - name: Build ESP-IDF firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+      - name: Build release manifest
+        run: |
+          python3 scripts/build_firmware_manifest.py \
+            --tag "${GITHUB_REF_NAME}" \
+            --commit "${GITHUB_SHA}" \
+            --output firmware-manifest.json
+          sha256sum build/bootloader/bootloader.bin \
+            build/partition_table/partition-table.bin \
+            build/easy_input_keyboard.bin > SHA256SUMS.txt
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            build/easy_input_keyboard.bin
+            firmware-manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: easyinput-firmware-${{ github.ref_name }}
+          if-no-files-found: error
+          path: |
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            build/easy_input_keyboard.bin
+            firmware-manifest.json
+            SHA256SUMS.txt
+          retention-days: 30
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            build/bootloader/bootloader.bin \
+            build/partition_table/partition-table.bin \
+            build/easy_input_keyboard.bin \
+            firmware-manifest.json \
+            SHA256SUMS.txt \
+            --title "EasyInput Firmware ${GITHUB_REF_NAME}" \
+            --generate-notes

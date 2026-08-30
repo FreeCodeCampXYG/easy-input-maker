@@ -13,6 +13,7 @@
 #include "keyboard/board_pins.h"
 #include "keyboard/config_receiver.h"
 #include "keyboard/fixed_text_protocol.h"
+#include "keyboard/host_action_protocol.h"
 #include "keyboard/hid_keycode.h"
 #include "keyboard/status_hid_protocol.h"
 #include "tinyusb.h"
@@ -51,6 +52,8 @@ static_assert(kAppCommandHeaderLen ==
               ai_keyboard::kFixedTextAppCommandHeaderLen);
 static_assert(kAppCommandChunkDataLen ==
               ai_keyboard::kFixedTextAppCommandChunkDataLen);
+static_assert(ai_keyboard::kHostActionPayloadLen ==
+              kAppCommandReportPayloadLen);
 constexpr std::uint16_t kUsbVid = 0x303A;
 constexpr std::uint16_t kUsbPid = 0x1006;
 constexpr std::uint16_t kUsbBcdDevice = 0x010A;
@@ -1439,6 +1442,19 @@ bool UsbHidTransport::send_firmware_event_for_epoch(
         return type_text(event.value, expected_epoch);
       }
       return send_fixed_text_command(event.value, expected_epoch);
+    case ai_keyboard::FirmwareEventKind::HostAction:
+      {
+        std::array<std::uint8_t, ai_keyboard::kHostActionPayloadLen> payload{};
+        if (!ai_keyboard::encode_host_action_app_command(event.value, &payload)) {
+          ESP_LOGW(kTag, "USB Host Action rejected");
+          return false;
+        }
+        if (!queue_app_command_payload_for_epoch(payload, expected_epoch)) {
+          return false;
+        }
+        poll_pending_reports();
+        return true;
+      }
     case ai_keyboard::FirmwareEventKind::AppCommand:
       return false;
   }
@@ -1617,6 +1633,29 @@ bool UsbHidTransport::send_app_command_report(std::uint8_t command_kind,
   }
   poll_pending_reports();
   return true;
+}
+
+bool UsbHidTransport::queue_app_command_payload_for_epoch(
+    const std::array<std::uint8_t, 63>& payload,
+    std::uint32_t expected_epoch) {
+  // 复用共享层已完成的 63 字节帧，平台层只负责绑定当前 USB epoch；失败时不迁移到 BLE。
+  apply_pending_lifetime_reset();
+  if (!lock_current_epoch(expected_epoch)) {
+    return false;
+  }
+  const auto now_ms =
+      static_cast<std::uint32_t>(esp_timer_get_time() / 1000ULL);
+  const bool queued = pending_app_command_reports_.push(
+      kReportIdAppCommand,
+      payload.data(),
+      payload.size(),
+      now_ms,
+      nullptr,
+      0,
+      {},
+      expected_epoch);
+  unlock_lifetime();
+  return queued;
 }
 
 bool UsbHidTransport::queue_app_command_report(

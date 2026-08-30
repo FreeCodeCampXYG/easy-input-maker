@@ -1394,6 +1394,9 @@ void dispatch_firmware_event(AppContext* app,
     case ai_keyboard::FirmwareEventKind::AppCommand:
       kind = "app";
       break;
+    case ai_keyboard::FirmwareEventKind::HostAction:
+      kind = "host_action";
+      break;
   }
   ESP_LOGD(kTag,
            "HID dispatch seq=%lu source=%s kind=%s route=%s usb=%u ble=%u",

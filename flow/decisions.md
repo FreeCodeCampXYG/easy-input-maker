@@ -2,6 +2,56 @@
 
 > 这里只追加适合公开、对后续协作确有价值的过程决策。
 
+## 2026-08-30 · 固件烧录产物采用标签化 manifest 合同
+- 背景：桌面烧录器不能从任意 GitHub 二进制或本机构建目录推断写入偏移和可信来源。
+- 决定：仅未来 `firmware-v*` 标签触发的固件 Release 生成 `firmware-manifest.json`、`SHA256SUMS.txt` 和 GitHub 构建溯源；清单固定声明 EasyInput V2.0、ESP32-S3、bootloader/分区表/应用三段及各自偏移和 SHA-256。
+- 边界：不把此流程解释为 OTA、签名或自动烧录；标签未推送前不产生 Release，桌面端忽略无清单的历史 Release。
+
+## 2026-08-30 · T10 烧录前审计拒绝申请烧录
+- 结论：`SAFE_TO_REQUEST_FLASH = NO`。
+- 原因：`host_test/CMakeLists.txt` 将 `host_action_protocol.cpp` 重复加入宿主核心库；虽未阻断 60/60 宿主测试或 ESP-IDF 构建，但未达到“每项变化均合理”的烧录前门槛。
+- 边界：硬件、分区、身份、协议、隐私日志和生成物范围均无 FAIL；不在审计节点删除、回退或修复代码，待最小去重修复后重审。
+
+## 2026-08-30 · T06 回归修正：分离 Host Action 与旧 AppCommand 事件
+- 发现：T06 初版把所有 `FirmwareEventKind::AppCommand` 都送入 Host Action UUID 编码，可能使 `history`、`settings`、profile 等旧 AppCommand 失败。
+- 修正：新增独立 `FirmwareEventKind::HostAction`；只有该事件进入 kind `0x05` 编码，旧 AppCommand 事件类型和平台分支保持原语义。
+- 证据：定向 Host Action/源码合同 4 项与完整宿主测试 60/60 通过；协议字段、USB/BLE 发送路径和能力声明未改变。
+- 后续验证：复用 ESP-IDF v5.5.5 / esp32s3 增量构建成功，应用镜像为 `0x190810`，App 分区余量 48%。
+
+## 2026-08-30 · Host Action v1 合同在当前实践分支复核
+- 背景：用户要求按既有冻结合同推进记录；当前 `my-host-action-practice` 是 Host Action starter，缺少 kind `0x05` 属于课程待实现内容。
+- 决定：以 `flow/tasks/T02-Host-Action-v1-固定兼容协议.md` 为权威合同，本节点只在 `flow/` 增加复核记录；保留完整前缀 UUID、`0x11/0x05/0/1/36` 字节合同、按下单发/松开不发、USB/BLE 单通道和第 08 步能力声明边界。
+- 核对结论：当前源码未发现 App Command kind `0x05` 占用；`0x04` 仍为状态响应；63 字节容器可承载 `[4..39]` 的 36 字节数据，`[40..62]` 只是余量；无直接冲突。
+- 范围：后续实现必须覆盖配置持久化、Keymap/事件、共享编码、USB/BLE 适配和宿主测试；本节点不改代码、不运行验证、不烧录、不访问其他工程。
+
+## 2026-08-30 · T03 只实现 Host Action 纯逻辑层
+- 决定：合同一致后先补宿主测试，再在 `components/keyboard/` 实现 UUID fail-closed 校验、Keymap 动作、按下/松开事件和共享 63 字节 payload 编码；不接 USB/BLE，不提前加入能力声明。
+- 证据：新增定向测试先因实现缺失失败，完成实现并收窄旧 starter 平台边界断言后，完整宿主测试 58/58 通过。
+- 边界：`main/`、USB/BLE 适配、NVS 运行时持久化、ESP-IDF 构建、能力声明和烧录均留在后续节点；v1 字段未扩展。
+
+## 2026-08-30 · T04 八键配置覆盖复用既有解析循环
+- 决定：不复制或重写生产解析；以现有 `parse_config_payload()` 的 `KEY1`—`KEY8` 统一 `parse_binding()` 循环为实现，新增参数化宿主覆盖证明每个实体主按键均保留完整 Host Action 配置值。
+- 证据：KEY1—KEY8 逐项 press/Keymap/Pressed/Released 断言通过；复制、粘贴、快捷键、固定文字和旧动作回归继续通过，完整宿主测试 58/58。
+- 边界：示例 UUID 仅存在宿主测试；未修改 `main/` 或 USB/BLE，T06/T08 的运行时接入与能力声明不提前进行。
+
+## 2026-08-30 · T06 USB/BLE 复用共享 Host Action 帧
+- 决定：平台层接收 `FirmwareEventKind::AppCommand` 后调用共享 `encode_host_action_app_command()`，USB 将完整 63 字节帧送入既有 App Command FIFO，BLE 将同一帧送入既有输入队列；不复制 Host Action 常量或重写协议。
+- 路由：继续使用 `dispatch_firmware_event()` 的 USB 优先和 owner/epoch 保护；已选通道失败不跨通道补发，避免双发。
+- 证据：宿主路由/源码合同和完整 58/58 回归通过；ESP-IDF 编译、真实 USB/BLE 连接和实板烧录留待后续。
+
+## 2026-08-30 · T06 平台源码合同按真实调用形态校验
+- 记录：源码合同测试必须匹配 `dispatch_firmware_event()` 当前真实的 `source` 参数和 `send_firmware_event_for_epoch`/BLE 调用形态；一次过严的字符串断言已修正，未改变生产路由逻辑。
+
+## 2026-08-30 · T08 能力声明与 512 字节预算
+- 决定：`host_action_v1:true` 仅追加到通用、full、speaker probe 和 fallback 的 `capabilities` 对象；状态响应继续为 `0x04`，Host Action 发送继续为 `0x05`，不把能力混入 App Command payload。
+- 预算：speaker probe 仅将 firmware 内容限制为 16 字节并保留全部 probe 指标；normal/compact/battery 溢出时先省略四个可选 cycle 字段，current power 保留。
+- 证据：宿主极值最终 BLE wire 最大为 502/512 字节，完整宿主回归 58/58；ESP-IDF/真机状态发布待后续。
+
+## 2026-08-30 · T09 软件侧总验收以实际 CTest 清单为准
+- 决定：重新配置后以 `ctest -N` 发现的 60 项为本轮基线，明确注册并执行三个 Host Action 专项目标；不沿用旧的 58 项记录或固定数字。
+- 证据：发现 60、执行 60、通过 60、失败 0；ESP-IDF v5.5.5 / esp32s3 默认构建退出 0，生成应用镜像并报告 App 分区剩余 48%。
+- 边界：构建/测试证据不等于烧录或实板功能；App、真实 USB/BLE 和设备操作均未执行。
+
 ## 2026-08-25 · 完整基线、课程起点与产品专属能力分层
 - 背景：完整公共固件已经具备 Host Action v1 和 BLE 配置持久化修复；课程需要让学员按节点实现 Host Action，同时又不能退回到缺少 BLE 修复的旧固件。产品固件另有 OTA、签名和发布流程，不属于本课程目标。
 - 决定：Maker `main` 维护完整公共固件基线；`course/host-action-v1-starter` 从同一公共底座中只移除 Host Action 的实现与答案型测试，继续保留 BLE 修复和所有无关公共能力。两者分别用 `course-host-action-v1-complete-v1` 与 `course-host-action-v1-start-v1` 固定课程版本。产品专属 OTA、签名、发布和部署工具不进入 Maker 的任何分支。

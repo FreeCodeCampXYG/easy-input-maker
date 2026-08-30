@@ -3526,19 +3526,32 @@ void runtime_logs_do_not_emit_user_or_device_identifiers() {
   }
 }
 
-void course_starter_does_not_ship_host_action_implementation() {
+void host_action_platform_adapters_reuse_shared_encoding() {
   const auto app = read_source("main/app_main.cpp");
   const auto usb = read_source("main/platform/usb_hid.cpp");
   const auto ble = read_source("main/platform/ble_hid.cpp");
-  const auto config = read_source("components/keyboard/src/config_payload.cpp");
-  const auto keymap = read_source("components/keyboard/include/keyboard/keymap.h");
   const auto status = read_source("components/keyboard/src/config_status.cpp");
+  const auto status_header =
+      read_source("components/keyboard/include/keyboard/config_status.h");
 
-  for (const auto* source : {&app, &usb, &ble, &config, &keymap, &status}) {
-    assert(source->find("FirmwareEventKind::HostAction") == std::string::npos);
-    assert(source->find("host_action_protocol.h") == std::string::npos);
-    assert(source->find("host_action_v1") == std::string::npos);
-  }
+  assert(app.find("route_for_firmware_event") != std::string::npos);
+  assert(app.find("FirmwareEventKind::HostAction") != std::string::npos);
+  assert(app.find("send_firmware_event_for_epoch") != std::string::npos);
+  assert(app.find("app->ble.send_firmware_event(source, event)") !=
+         std::string::npos);
+  assert(usb.find("keyboard/host_action_protocol.h") != std::string::npos);
+  assert(ble.find("keyboard/host_action_protocol.h") != std::string::npos);
+  assert(usb.find("encode_host_action_app_command") != std::string::npos);
+  assert(ble.find("encode_host_action_app_command") != std::string::npos);
+  assert(usb.find("kHostActionCommandKind") == std::string::npos);
+  assert(ble.find("kHostActionCommandKind") == std::string::npos);
+  assert(count_occurrences(status, "\\\"host_action_v1\\\":true") == 3);
+  assert(status_header.find("\\\"host_action_v1\\\":true") !=
+         std::string::npos);
+  assert(status.find("kSpeakerProbeFirmwareStringMaxLen = 16") !=
+         std::string::npos);
+  assert(status.find("const auto compact_without_cycle") !=
+         std::string::npos);
 }
 
 void config_status_publication_uses_shared_bounded_ble_encoders() {
@@ -3598,7 +3611,7 @@ int main() {
   ble_persistence_is_capacity_safe_and_migrated_before_advertising();
   peripheral_power_lifecycle_is_system_owned_and_ordered();
   runtime_logs_do_not_emit_user_or_device_identifiers();
-  course_starter_does_not_ship_host_action_implementation();
+  host_action_platform_adapters_reuse_shared_encoding();
   config_status_publication_uses_shared_bounded_ble_encoders();
   return 0;
 }
