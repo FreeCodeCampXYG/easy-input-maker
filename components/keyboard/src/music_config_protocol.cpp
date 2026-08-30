@@ -30,12 +30,14 @@ bool encode_music_config(const MusicConfig& config,
     put_u16(payload, 21 + i * 2U, static_cast<std::uint16_t>(config.key_cents[i]));
     (*payload)[37 + i] = static_cast<std::uint8_t>(config.timbres[i]);
   }
+  (*payload)[45] = config.metronome_enabled ? 1U : 0U;
   return true;
 }
 
 std::optional<MusicConfig> decode_music_config(const std::uint8_t* payload, std::size_t length) {
   if (payload == nullptr || length != kMusicConfigPayloadLen || payload[0] != 'M' || payload[1] != 'U' ||
-      payload[2] != 'S' || payload[3] != '1' || payload[4] != kMusicConfigVersion || (payload[5] & ~1U) != 0) return std::nullopt;
+      payload[2] != 'S' || payload[3] != '1' || payload[4] != kMusicConfigVersion || (payload[5] & ~1U) != 0 ||
+      (payload[45] & ~1U) != 0) return std::nullopt;
   MusicConfig config;
   config.enabled = payload[5] != 0; config.root_midi = static_cast<std::int8_t>(payload[6]);
   config.transpose_semitones = static_cast<std::int8_t>(payload[7]); config.scale = static_cast<MusicScale>(payload[8]);
@@ -46,6 +48,7 @@ std::optional<MusicConfig> decode_music_config(const std::uint8_t* payload, std:
     config.key_cents[i] = static_cast<std::int16_t>(get_u16(payload, 21 + i * 2U));
     config.timbres[i] = static_cast<MusicTimbre>(payload[37 + i]);
   }
+  config.metronome_enabled = payload[45] != 0;
   if (!validate_music_config(config)) return std::nullopt;
   return config;
 }

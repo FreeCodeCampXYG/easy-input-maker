@@ -58,6 +58,7 @@ void adsr_release_and_phase_are_continuous() {
 void metronome_and_tuner_are_offline_and_deterministic() {
   ai_keyboard::MusicConfig config;
   config.enabled = true;
+  config.metronome_enabled = true;
   config.bpm = 300;
   config.beats_per_bar = 3;
   config.beat_unit = 4;
@@ -65,9 +66,11 @@ void metronome_and_tuner_are_offline_and_deterministic() {
   assert(synth.apply_config(config));
   std::array<std::int16_t, 1> silent{};
   synth.render(silent.data(), silent.size());
+  assert(silent[0] != 0);
   bool accented = false;
   assert(synth.take_metronome_tick(&accented));
   assert(accented);
+  assert(synth.metronome_running());
   constexpr std::size_t sample_count = 4800;
   std::array<std::int16_t, sample_count> sine{};
   for (std::size_t i = 0; i < sine.size(); ++i) {

@@ -1395,7 +1395,7 @@ esp_err_t SpeakerOutput::play_music_frames(std::uint32_t generation,
                          static_cast<std::int32_t>(write_result), generation);
       return write_result;
     }
-    if (!music_synth_.active()) {
+    if (!music_synth_.active() && !music_synth_.metronome_running()) {
       return ESP_OK;
     }
   }

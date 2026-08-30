@@ -29,6 +29,7 @@ struct MusicConfig {
   std::uint16_t bpm = 120;
   std::uint8_t beats_per_bar = 4;
   std::uint8_t beat_unit = 4;
+  bool metronome_enabled = false;
 };
 
 // MusicSynth 只保存离线可测的合成状态；平台层负责 I2S、GPIO8 和仲裁。
@@ -40,6 +41,7 @@ class MusicSynth {
   bool note_off(std::size_t key_index);
   void render(std::int16_t* samples, std::size_t sample_count);
   bool active() const;
+  bool metronome_running() const;
   // 返回本次 render 中是否跨过节拍；第一拍由 accented 标记。
   bool take_metronome_tick(bool* accented);
 
@@ -65,6 +67,8 @@ class MusicSynth {
   std::uint64_t next_beat_frame_ = 0;
   bool metronome_tick_pending_ = false;
   bool metronome_tick_accented_ = false;
+  std::uint32_t metronome_click_frames_remaining_ = 0;
+  bool metronome_click_accented_ = false;
   std::uint32_t beat_index_ = 0;
 };
 

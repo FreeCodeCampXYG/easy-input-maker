@@ -7,6 +7,8 @@
 namespace ai_keyboard {
 namespace {
 
+constexpr std::uint32_t kMetronomeClickFrames = kMusicSampleRate / 50U;
+
 constexpr std::array<std::int8_t, kMusicKeyCount> kMajor{{0, 2, 4, 5, 7, 9, 11, 12}};
 constexpr std::array<std::int8_t, kMusicKeyCount> kNaturalMinor{{0, 2, 3, 5, 7, 8, 10, 12}};
 constexpr std::array<std::int8_t, kMusicKeyCount> kPentatonicMajor{{0, 2, 4, 7, 9, 12, 14, 16}};
@@ -158,11 +160,23 @@ void MusicSynth::render(std::int16_t* samples, std::size_t sample_count) {
       mixed += (static_cast<std::int64_t>(waveform(voice)) * voice.level_q15) / 32767;
       advance_voice(&voice);
     }
-    if (config_.enabled && frame_clock_ >= next_beat_frame_) {
+    if (config_.enabled && config_.metronome_enabled &&
+        frame_clock_ >= next_beat_frame_) {
       metronome_tick_pending_ = true;
       metronome_tick_accented_ = beat_index_ == 0;
+      metronome_click_frames_remaining_ = kMetronomeClickFrames;
+      metronome_click_accented_ = metronome_tick_accented_;
       beat_index_ = (beat_index_ + 1) % config_.beats_per_bar;
       next_beat_frame_ = frame_clock_ + frames_per_beat;
+    }
+    if (metronome_click_frames_remaining_ != 0U) {
+      const auto phase = (kMetronomeClickFrames - metronome_click_frames_remaining_) % 24U;
+      const auto polarity = phase < 12U ? 1 : -1;
+      const auto peak = metronome_click_accented_ ? 9000 : 5500;
+      mixed += polarity *
+               (static_cast<std::int64_t>(peak) * metronome_click_frames_remaining_) /
+                   kMetronomeClickFrames;
+      --metronome_click_frames_remaining_;
     }
     const auto limited = std::max<std::int64_t>(-32768, std::min<std::int64_t>(32767, mixed));
     samples[index] = static_cast<std::int16_t>(limited);
@@ -173,6 +187,10 @@ void MusicSynth::render(std::int16_t* samples, std::size_t sample_count) {
 bool MusicSynth::active() const {
   for (const auto& voice : voices_) if (voice.active) return true;
   return false;
+}
+
+bool MusicSynth::metronome_running() const {
+  return config_.enabled && config_.metronome_enabled;
 }
 
 bool MusicSynth::take_metronome_tick(bool* accented) {

@@ -18,6 +18,7 @@ void round_trip_preserves_all_public_controls() {
   config.attack_ms = 12;
   config.release_ms = 90;
   config.reference_a4_milli_hz = 442000;
+  config.metronome_enabled = true;
   config.key_cents[4] = 18;
   config.timbres[4] = ai_keyboard::MusicTimbre::Bell;
   std::array<std::uint8_t, ai_keyboard::kMusicConfigPayloadLen> payload{};
@@ -26,7 +27,7 @@ void round_trip_preserves_all_public_controls() {
   assert(decoded.has_value());
   assert(decoded->enabled && decoded->root_midi == 57 && decoded->transpose_semitones == -5);
   assert(decoded->scale == ai_keyboard::MusicScale::NaturalMinor && decoded->bpm == 132);
-  assert(decoded->beats_per_bar == 6 && decoded->beat_unit == 8 && decoded->key_cents[4] == 18);
+  assert(decoded->beats_per_bar == 6 && decoded->beat_unit == 8 && decoded->key_cents[4] == 18 && decoded->metronome_enabled);
   assert(decoded->timbres[4] == ai_keyboard::MusicTimbre::Bell);
 }
 

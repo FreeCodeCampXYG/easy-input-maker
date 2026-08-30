@@ -3081,6 +3081,16 @@ bool apply_music_config(AppContext* app,
   }
   // 音乐开关先于输入分发更新，避免配置关闭后旧按键路径仍被钢琴拦截。
   app->music_mode_enabled = config.enabled;
+  if (config.enabled && config.metronome_enabled) {
+    if (!app->speaker.ready() &&
+        (!app->speaker.shutdown_complete() ||
+         app->speaker.begin(app->platform_task, &app->audio_io_arbiter) != ESP_OK)) {
+      return false;
+    }
+    if (!app->speaker.request_music()) {
+      return false;
+    }
+  }
   ESP_LOGI(kTag, "MUSIC_CONFIG applied source=%s enabled=%u root=%d bpm=%u",
            source, config.enabled ? 1U : 0U, static_cast<int>(config.root_midi),
            static_cast<unsigned>(config.bpm));
