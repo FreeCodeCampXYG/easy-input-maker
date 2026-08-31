@@ -52,6 +52,8 @@ add_library(easy_input_keyboard_core
   ../components/keyboard/src/music_synth.cpp
   ../components/keyboard/src/music_live_control.cpp
   ../components/keyboard/src/music_config_protocol.cpp
+  ../components/keyboard/src/music_sequence_protocol.cpp
+  ../components/keyboard/src/music_sequence_player.cpp
   ../components/keyboard/src/platform_selection.cpp
   ../components/keyboard/src/peripheral_power_lease.cpp
   ../components/keyboard/src/power_cycle.cpp
@@ -309,6 +311,7 @@ add_keyboard_host_test(keymap_tests)
 add_keyboard_host_test(music_synth_tests)
 add_keyboard_host_test(music_live_control_tests)
 add_keyboard_host_test(music_config_protocol_tests)
+add_keyboard_host_test(music_sequence_tests)
 add_executable(host_action_protocol_tests host_action_tests.cpp)
 target_link_libraries(host_action_protocol_tests PRIVATE easy_input_keyboard_core)
 enable_keyboard_host_test_assertions(host_action_protocol_tests)

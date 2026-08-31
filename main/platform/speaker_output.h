@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "keyboard/audio_io_arbiter.h"
 #include "keyboard/music_synth.h"
+#include "keyboard/music_sequence_player.h"
 #include "keyboard/speaker_playback.h"
 #include "keyboard/speaker_probe_status.h"
 #if defined(EASY_INPUT_SPEAKER_OPUS_DIAGNOSTIC)
@@ -41,6 +42,7 @@ class SpeakerOutput {
   // note edges; the I2S worker consumes them before rendering each PCM frame.
   bool request_music();
   bool set_music_config(const ai_keyboard::MusicConfig& config);
+  bool set_music_sequence(const ai_keyboard::MusicSequence& sequence);
   bool queue_music_note(std::size_t key_index, bool pressed);
   std::uint8_t adjust_music_volume(int delta_percent);
   std::uint8_t music_volume_percent() const;
@@ -108,6 +110,7 @@ class SpeakerOutput {
                               std::int16_t* frame,
                               std::size_t frame_capacity);
   void consume_music_commands();
+  void consume_music_sequence();
 #if defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
   bool submit_open_asset_request(std::uint32_t generation);
   esp_err_t prepare_asset_first_frame(std::uint32_t generation,
@@ -168,6 +171,9 @@ class SpeakerOutput {
   };
   static constexpr std::size_t kMusicCommandCapacity = 16;
   ai_keyboard::MusicSynth music_synth_;
+  ai_keyboard::MusicSequencePlayer music_sequence_player_;
+  ai_keyboard::MusicSequence pending_music_sequence_{};
+  bool pending_music_sequence_ready_ = false;
   ai_keyboard::MusicConfig music_config_ = [] {
     ai_keyboard::MusicConfig config;
     config.enabled = true;

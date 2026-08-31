@@ -37,7 +37,7 @@ class MusicSynth {
  public:
   bool apply_config(const MusicConfig& config);
   const MusicConfig& config() const;
-  bool note_on(std::size_t key_index);
+  bool note_on(std::size_t key_index, std::uint8_t velocity_percent = 100);
   bool note_off(std::size_t key_index);
   void render(std::int16_t* samples, std::size_t sample_count);
   bool active() const;
@@ -54,6 +54,7 @@ class MusicSynth {
     std::uint32_t increment = 0;
     std::uint32_t age = 0;
     std::uint32_t level_q15 = 0;
+    std::uint32_t velocity_q15 = 32767;
     Envelope envelope = Envelope::Attack;
     MusicTimbre timbre = MusicTimbre::SoftPiano;
   };

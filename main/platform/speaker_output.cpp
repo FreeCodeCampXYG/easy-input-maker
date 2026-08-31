@@ -475,6 +475,14 @@ bool SpeakerOutput::request_music() {
     return true;
   }
 
+  // 每次新会话从空的物理状态开始；上一会话若在队列/复位边界结束，
+  // 残留位图不能被带入本次演奏，否则会把已松开的键重新发成长音。
+  music_pressed_mask_.store(0U, std::memory_order_release);
+  portENTER_CRITICAL(&music_mux_);
+  music_command_head_ = 0U;
+  music_command_count_ = 0U;
+  portEXIT_CRITICAL(&music_mux_);
+
   const auto ticket = playback_.request();
   if (!ticket.accepted || !audio_io_arbiter_->try_begin_speaker(ticket.generation)) {
     if (ticket.accepted) {
@@ -518,12 +526,30 @@ bool SpeakerOutput::set_music_config(const ai_keyboard::MusicConfig& config) {
   return true;
 }
 
+bool SpeakerOutput::set_music_sequence(const ai_keyboard::MusicSequence& sequence) {
+  if (sequence.command == ai_keyboard::MusicSequenceCommand::Play &&
+      (sequence.event_count == 0 || sequence.bpm < 20 || sequence.bpm > 300)) {
+    return false;
+  }
+  portENTER_CRITICAL(&music_mux_);
+  pending_music_sequence_ = sequence;
+  pending_music_sequence_ready_ = true;
+  portEXIT_CRITICAL(&music_mux_);
+  music_reset_pending_.store(true, std::memory_order_release);
+  return true;
+}
+
 bool SpeakerOutput::queue_music_note(std::size_t key_index, bool pressed) {
   if (key_index >= ai_keyboard::kMusicKeyCount || !music_active()) {
     return false;
   }
   auto current_mask = music_pressed_mask_.load(std::memory_order_acquire);
   while (true) {
+    const auto bit = static_cast<std::uint8_t>(1U << key_index);
+    // 去重同一物理状态，避免重复边沿反复重触发包络并制造爆音。
+    if (((current_mask & bit) != 0U) == pressed) {
+      return true;
+    }
     const auto updated_mask = ai_keyboard::updated_music_pressed_mask(
         current_mask, key_index, pressed);
     if (music_pressed_mask_.compare_exchange_weak(
@@ -1373,6 +1399,24 @@ void SpeakerOutput::consume_music_commands() {
   }
 }
 
+void SpeakerOutput::consume_music_sequence() {
+  ai_keyboard::MusicSequence sequence;
+  bool ready = false;
+  portENTER_CRITICAL(&music_mux_);
+  if (pending_music_sequence_ready_) {
+    sequence = pending_music_sequence_;
+    pending_music_sequence_ready_ = false;
+    ready = true;
+  }
+  portEXIT_CRITICAL(&music_mux_);
+  if (!ready) return;
+  if (sequence.command == ai_keyboard::MusicSequenceCommand::Stop) {
+    music_sequence_player_.stop(&music_synth_);
+  } else if (!music_sequence_player_.load(sequence)) {
+    music_sequence_player_.stop(&music_synth_);
+  }
+}
+
 esp_err_t SpeakerOutput::play_music_frames(std::uint32_t generation,
                                            std::int16_t* frame,
                                            std::size_t frame_capacity) {
@@ -1381,6 +1425,8 @@ esp_err_t SpeakerOutput::play_music_frames(std::uint32_t generation,
   }
   while (!cancelled(generation)) {
     consume_music_commands();
+    consume_music_sequence();
+    music_sequence_player_.advance(frame_capacity, &music_synth_);
     music_synth_.render(frame, frame_capacity);
     const auto volume = music_volume_percent();
     for (std::size_t index = 0; index < frame_capacity; ++index) {
@@ -1395,7 +1441,8 @@ esp_err_t SpeakerOutput::play_music_frames(std::uint32_t generation,
                          static_cast<std::int32_t>(write_result), generation);
       return write_result;
     }
-    if (!music_synth_.active() && !music_synth_.metronome_running()) {
+    if (!music_synth_.active() && !music_synth_.metronome_running() &&
+        !music_sequence_player_.playing()) {
       return ESP_OK;
     }
   }

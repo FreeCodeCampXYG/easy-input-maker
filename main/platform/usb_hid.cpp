@@ -16,6 +16,7 @@
 #include "keyboard/host_action_protocol.h"
 #include "keyboard/hid_keycode.h"
 #include "keyboard/music_config_protocol.h"
+#include "keyboard/music_sequence_protocol.h"
 #include "keyboard/status_hid_protocol.h"
 #include "tinyusb.h"
 #include "tusb.h"
@@ -34,6 +35,7 @@ constexpr std::uint8_t kReportIdStatusRequest = ai_keyboard::kStatusRequestRepor
 constexpr std::uint8_t kReportIdSpeakerAssetsRequest = 0x14;
 constexpr std::uint8_t kReportIdSpeakerAssetsResponse = 0x15;
 constexpr std::uint8_t kReportIdMusicConfig = ai_keyboard::kMusicConfigReportId;
+constexpr std::uint8_t kReportIdMusicSequence = ai_keyboard::kMusicSequenceReportId;
 constexpr std::uint8_t kAppCommandKindFixedText = 0x01;
 constexpr std::uint8_t kAppCommandKindHotkey = 0x02;
 constexpr std::uint8_t kAppCommandKindConfigAck = 0x03;
@@ -95,6 +97,15 @@ const std::uint8_t kHidReportDescriptor[] = {
     0x29, 0x05,        //   Usage Maximum (Kana)
     0x95, 0x05,        //   Report Count (5)
     0x75, 0x01,        //   Report Size (1)
+    0x91, 0x02,        //   Output (Data,Var,Abs)
+    0x85, 0x17,        //   Report ID (23)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x26, 0xFF, 0x00,  //   Logical Maximum (255)
+    0x75, 0x08,        //   Report Size (8)
+    0x95, 0x3F,        //   Report Count (63)
+    0x09, 0x08,        //   Usage (Vendor Usage 8)
+    0xB1, 0x02,        //   Feature (Data,Var,Abs)
+    0x09, 0x08,        //   Usage (Vendor Usage 8)
     0x91, 0x02,        //   Output (Data,Var,Abs)
     0x95, 0x01,        //   Report Count (1)
     0x75, 0x03,        //   Report Size (3)
@@ -984,6 +995,23 @@ bool UsbHidTransport::take_pending_music_config(
   return *endpoint_epoch != 0;
 }
 
+bool UsbHidTransport::take_pending_music_sequence(
+    ai_keyboard::MusicSequence* out,
+    std::uint32_t* endpoint_epoch) {
+  if (out == nullptr || endpoint_epoch == nullptr) return false;
+  portENTER_CRITICAL(&pending_music_sequence_mux_);
+  if (!pending_music_sequence_ready_) {
+    portEXIT_CRITICAL(&pending_music_sequence_mux_);
+    return false;
+  }
+  *out = pending_music_sequence_;
+  *endpoint_epoch = pending_music_sequence_epoch_;
+  pending_music_sequence_ready_ = false;
+  pending_music_sequence_epoch_ = 0;
+  portEXIT_CRITICAL(&pending_music_sequence_mux_);
+  return *endpoint_epoch != 0;
+}
+
 bool UsbHidTransport::take_pending_agent_status(ai_keyboard::AgentStatusCommand* out) {
   if (out == nullptr) {
     return false;
@@ -1448,6 +1476,28 @@ void UsbHidTransport::receive_music_config_report(const std::uint8_t* data,
     return;
   }
   queue_completed_music_config(*config, epoch);
+}
+
+void UsbHidTransport::receive_music_sequence_report(const std::uint8_t* data,
+                                                     std::size_t len) {
+  if (data == nullptr) return;
+  if (len == ai_keyboard::kMusicSequencePayloadLen + 1U &&
+      data[0] == kReportIdMusicSequence) {
+    ++data;
+    --len;
+  }
+  const auto sequence = ai_keyboard::decode_music_sequence(data, len);
+  const auto epoch = connection_epoch();
+  if (!sequence || epoch == 0) {
+    ESP_LOGW(kTag, "MUSIC_SEQUENCE rejected len=%u", static_cast<unsigned>(len));
+    return;
+  }
+  portENTER_CRITICAL(&pending_music_sequence_mux_);
+  pending_music_sequence_ = *sequence;
+  pending_music_sequence_epoch_ = epoch;
+  pending_music_sequence_ready_ = true;
+  portEXIT_CRITICAL(&pending_music_sequence_mux_);
+  notify_work_ready();
 }
 
 bool UsbHidTransport::send_firmware_event(const char* source,
@@ -1979,6 +2029,11 @@ extern "C" void tud_hid_set_report_cb(uint8_t instance,
               (bufsize == ai_keyboard::kMusicConfigPayloadLen + 1U &&
                buffer != nullptr && buffer[0] == easy_input::kReportIdMusicConfig))) {
     easy_input::s_active_transport->receive_music_config_report(buffer, bufsize);
+  } else if (easy_input::s_active_transport != nullptr &&
+             (report_id == easy_input::kReportIdMusicSequence ||
+              (bufsize == ai_keyboard::kMusicSequencePayloadLen + 1U &&
+               buffer != nullptr && buffer[0] == easy_input::kReportIdMusicSequence))) {
+    easy_input::s_active_transport->receive_music_sequence_report(buffer, bufsize);
   } else if (report_id == easy_input::kReportIdAgentStatus &&
              easy_input::s_active_transport != nullptr) {
     easy_input::s_active_transport->receive_agent_status_report(buffer, bufsize);

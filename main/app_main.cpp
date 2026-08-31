@@ -34,6 +34,8 @@
 #include "keyboard/keymap.h"
 #include "keyboard/music_live_control.h"
 #include "keyboard/music_config_protocol.h"
+#include "keyboard/music_builtin.h"
+#include "keyboard/music_sequence_protocol.h"
 #include "keyboard/power_cycle.h"
 #include "keyboard/power_policy.h"
 #include "keyboard/platform_selection.h"
@@ -3132,6 +3134,35 @@ void apply_pending_music_config(AppContext* app) {
     ESP_LOGW(kTag, "MUSIC_CONFIG save/apply failed: %s", esp_err_to_name(save_err));
   }
 }
+
+void apply_pending_music_sequence(AppContext* app) {
+  ai_keyboard::MusicSequence sequence;
+  std::uint32_t endpoint_epoch = 0;
+  if (!app->usb.take_pending_music_sequence(&sequence, &endpoint_epoch)) return;
+  if (sequence.command == ai_keyboard::MusicSequenceCommand::Builtin) {
+    const auto builtin = ai_keyboard::builtin_music_sequence(sequence.builtin_id);
+    if (!builtin) {
+      app->usb.send_config_ack_for_epoch(
+          0x17, false,
+          static_cast<std::uint16_t>(ai_keyboard::kMusicSequencePayloadLen),
+          0U, false, endpoint_epoch);
+      return;
+    }
+    sequence = *builtin;
+  }
+  if (!app->speaker.ready() &&
+      (!app->speaker.shutdown_complete() ||
+       app->speaker.begin(app->platform_task, &app->audio_io_arbiter) != ESP_OK)) {
+    return;
+  }
+  const bool applied = app->speaker.set_music_sequence(sequence) &&
+                       (sequence.command == ai_keyboard::MusicSequenceCommand::Stop ||
+                        app->speaker.request_music());
+  app->usb.send_config_ack_for_epoch(
+      0x17, applied, static_cast<std::uint16_t>(ai_keyboard::kMusicSequencePayloadLen),
+      0U, applied, endpoint_epoch);
+  if (!applied) ESP_LOGW(kTag, "MUSIC_SEQUENCE apply rejected");
+}
 #endif
 
 void apply_pending_config(AppContext* app) {
@@ -3835,6 +3866,7 @@ extern "C" void app_main(void) {
 #if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
     defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
     apply_pending_music_config(&app);
+    apply_pending_music_sequence(&app);
 #endif
     apply_pending_agent_status(&app, millis());
     reconcile_keyboard_transport_lifetimes(&app);

@@ -81,7 +81,7 @@ bool MusicSynth::apply_config(const MusicConfig& config) {
 
 const MusicConfig& MusicSynth::config() const { return config_; }
 
-bool MusicSynth::note_on(std::size_t key_index) {
+bool MusicSynth::note_on(std::size_t key_index, std::uint8_t velocity_percent) {
   if (!config_.enabled || key_index >= kMusicKeyCount) return false;
   Voice* selected = nullptr;
   for (auto& voice : voices_) {
@@ -103,6 +103,8 @@ bool MusicSynth::note_on(std::size_t key_index) {
   selected->phase = old_phase;
   selected->increment = music_key_phase_increment(config_, key_index);
   selected->timbre = config_.timbres[key_index];
+  selected->velocity_q15 = static_cast<std::uint32_t>(
+      std::min<std::uint8_t>(velocity_percent, 100U)) * 32767U / 100U;
   selected->envelope = Envelope::Attack;
   return selected->increment != 0;
 }
@@ -155,10 +157,18 @@ void MusicSynth::render(std::int16_t* samples, std::size_t sample_count) {
       std::max<std::uint64_t>(1, (static_cast<std::uint64_t>(kMusicSampleRate) * 60U) / config_.bpm);
   for (std::size_t index = 0; index < sample_count; ++index) {
     std::int64_t mixed = 0;
+    std::size_t active_voice_count = 0;
     for (auto& voice : voices_) {
       if (!voice.active) continue;
-      mixed += (static_cast<std::int64_t>(waveform(voice)) * voice.level_q15) / 32767;
+      ++active_voice_count;
+      mixed += (static_cast<std::int64_t>(waveform(voice)) * voice.level_q15 *
+                voice.velocity_q15) / (32767LL * 32767LL);
       advance_voice(&voice);
+    }
+    // 固定按最大复音数留出余量，避免和弦相加后硬削波；固定分母也让
+    // 加入/释放一个声部时响度不会突然跳变，保留失败时的可听数据。
+    if (active_voice_count != 0U) {
+      mixed /= static_cast<std::int64_t>(kMusicMaxVoices);
     }
     if (config_.enabled && config_.metronome_enabled &&
         frame_clock_ >= next_beat_frame_) {

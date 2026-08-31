@@ -82,6 +82,23 @@ void metronome_and_tuner_are_offline_and_deterministic() {
   assert(std::abs(estimate.cents_from_a4) < 15.0);
 }
 
+void three_voice_chord_keeps_headroom() {
+  ai_keyboard::MusicConfig config;
+  config.enabled = true;
+  config.attack_ms = 0;
+  config.release_ms = 20;
+  ai_keyboard::MusicSynth synth;
+  assert(synth.apply_config(config));
+  assert(synth.note_on(0));
+  assert(synth.note_on(2));
+  assert(synth.note_on(4));
+  std::array<std::int16_t, 480> frame{};
+  synth.render(frame.data(), frame.size());
+  for (const auto sample : frame) {
+    assert(sample < 32767 && sample > -32768);
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -90,5 +107,6 @@ int main() {
   scale_selection_and_phase_increment_are_valid();
   adsr_release_and_phase_are_continuous();
   metronome_and_tuner_are_offline_and_deterministic();
+  three_voice_chord_keeps_headroom();
   return 0;
 }

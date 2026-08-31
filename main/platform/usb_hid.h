@@ -16,6 +16,7 @@
 #include "keyboard/hid_report_queue.h"
 #include "keyboard/keymap.h"
 #include "keyboard/music_config_protocol.h"
+#include "keyboard/music_sequence_protocol.h"
 #include "keyboard/status_hid_protocol.h"
 #include "keyboard/transport_routing.h"
 #include "keyboard/usb_hid_endpoint_arbiter.h"
@@ -63,6 +64,8 @@ class UsbHidTransport {
   bool take_pending_config(std::string* out, std::uint32_t* endpoint_epoch);
   bool take_pending_music_config(ai_keyboard::MusicConfig* out,
                                  std::uint32_t* endpoint_epoch);
+  bool take_pending_music_sequence(ai_keyboard::MusicSequence* out,
+                                    std::uint32_t* endpoint_epoch);
   bool take_pending_agent_status(ai_keyboard::AgentStatusCommand* out);
   bool take_pending_status_request(ai_keyboard::StatusHidRequest* out,
                                    std::uint32_t* endpoint_epoch);
@@ -128,6 +131,7 @@ class UsbHidTransport {
   bool mouse_wheel_report_pending() const;
   void receive_config_report(const std::uint8_t* data, std::size_t len);
   void receive_music_config_report(const std::uint8_t* data, std::size_t len);
+  void receive_music_sequence_report(const std::uint8_t* data, std::size_t len);
   void receive_agent_status_report(const std::uint8_t* data, std::size_t len);
   void receive_status_request_report(const std::uint8_t* data, std::size_t len);
   void receive_speaker_assets_report(
@@ -232,6 +236,11 @@ class UsbHidTransport {
   ai_keyboard::MusicConfig pending_music_config_{};
   std::uint32_t pending_music_config_epoch_ = 0;
   bool pending_music_config_ready_ = false;
+
+  mutable portMUX_TYPE pending_music_sequence_mux_ = portMUX_INITIALIZER_UNLOCKED;
+  ai_keyboard::MusicSequence pending_music_sequence_{};
+  std::uint32_t pending_music_sequence_epoch_ = 0;
+  bool pending_music_sequence_ready_ = false;
 
   mutable portMUX_TYPE pending_agent_status_mux_ = portMUX_INITIALIZER_UNLOCKED;
   ai_keyboard::AgentStatusCommand pending_agent_status_{};

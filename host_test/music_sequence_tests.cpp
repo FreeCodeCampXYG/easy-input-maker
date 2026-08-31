@@ -1,0 +1,51 @@
+#include <array>
+#include <cassert>
+
+#include "keyboard/music_sequence_player.h"
+#include "keyboard/music_builtin.h"
+
+namespace {
+
+void protocol_round_trip_and_player_progress() {
+  ai_keyboard::MusicSequence sequence;
+  sequence.command = ai_keyboard::MusicSequenceCommand::Play;
+  sequence.bpm = 120;
+  sequence.event_count = 2;
+  sequence.events[0] = {0, 4, 100};
+  sequence.events[1] = {2, 4, 45};
+  std::array<std::uint8_t, ai_keyboard::kMusicSequencePayloadLen> payload{};
+  assert(ai_keyboard::encode_music_sequence(sequence, &payload));
+  const auto decoded = ai_keyboard::decode_music_sequence(payload.data(), payload.size());
+  assert(decoded.has_value() && decoded->event_count == 2 &&
+         decoded->events[1].degree == 2 && decoded->events[1].velocity_percent >= 40 &&
+         decoded->events[1].velocity_percent <= 50);
+
+  ai_keyboard::MusicSynth synth;
+  ai_keyboard::MusicConfig config;
+  config.enabled = true;
+  assert(synth.apply_config(config));
+  ai_keyboard::MusicSequencePlayer player;
+  assert(player.load(*decoded));
+  // 当前 wire 将时值编码为十六分拍数，4 代表一拍；120 BPM 下每个
+  // 事件为 24000 帧，两个事件合计 48000 帧。
+  player.advance(48000, &synth);
+  assert(!player.playing());
+}
+
+void builtin_ode_to_joy_is_compact_and_playable() {
+  const auto sequence = ai_keyboard::builtin_music_sequence(
+      ai_keyboard::kBuiltinSongOdeToJoy);
+  assert(sequence.has_value());
+  assert(sequence->command == ai_keyboard::MusicSequenceCommand::Play);
+  assert(sequence->event_count <= ai_keyboard::kMusicSequenceMaxEvents);
+  assert(sequence->events[0].degree == 1);
+  assert(!ai_keyboard::builtin_music_sequence(99).has_value());
+}
+
+}  // namespace
+
+int main() {
+  protocol_round_trip_and_player_progress();
+  builtin_ode_to_joy_is_compact_and_playable();
+  return 0;
+}
