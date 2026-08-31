@@ -6,6 +6,14 @@
 
 EasyInput Maker 是面向 **EasyInput V2.0 / ESP32-S3** 的 WaytoAGI 社区固件。它保留按键、旋钮、灯光、USB/BLE HID、电池、麦克风与声音资源等现有能力，同时提供公开硬件边界、测试入口和 AI/Vibe Coding 教学路径。
 
+## 音乐配置原理图
+
+![EasyInput 音乐配置与播放原理图](docs/configuration-architecture.svg)
+
+当前音乐链路已经包含：MUS1 音乐参数、SEQ1 临时简谱播放、KEY1—KEY8 钢琴音符、强拍/弱拍节拍器 click、旋钮音量和唯一 I2S1 音频所有权。用户编辑曲目只在当前 Studio 播放会话和 Maker RAM 队列中存在，不写入 Maker NVS；music_v1 仅保存根音、调式、BPM、拍号等设备参数。
+
+当前尚未实现完整多轨鼓机（Kick/Snare/Hi-hat 等鼓点采样）和语音控制；实板发声、音量方向、麦克风抢占与曲目时序仍需硬件观察。
+
 > 当前状态：当前公开候选已在 EasyInput V2.0 实板完成联合功能测试；按键、编码器、灯光、USB/BLE、麦克风、扬声器、电源与启动恢复等主流程观察正常。构建、烧录与本次实板观察仍是不同证据。
 >
 > 本仓库交付固件源码和音频控制协议参考，不包含桌面 companion 应用；麦克风 Wi-Fi 上行需要兼容的本地 companion 配合，并且只适合受信任的本地网络。

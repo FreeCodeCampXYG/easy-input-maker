@@ -54,6 +54,7 @@ add_library(easy_input_keyboard_core
   ../components/keyboard/src/music_config_protocol.cpp
   ../components/keyboard/src/music_sequence_protocol.cpp
   ../components/keyboard/src/music_sequence_player.cpp
+  ../components/keyboard/src/music_builtin.cpp
   ../components/keyboard/src/platform_selection.cpp
   ../components/keyboard/src/peripheral_power_lease.cpp
   ../components/keyboard/src/power_cycle.cpp
