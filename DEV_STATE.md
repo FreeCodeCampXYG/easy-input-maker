@@ -42,6 +42,7 @@
 - 本轮完整 CTest：64/64 通过；覆盖 `MUS1`、`SEQ1`、音乐合成、实时按键状态和既有固件回归。
 - Studio `go test ./...` 与前端 `npm run build` 均通过。
 - 内置曲目覆盖测试通过：曲目编号校验、事件容量限制和首音符内容均已加入宿主测试。
+- GitHub Actions run `33360808188` 的固件验证通过；标签 `firmware-v0.2.3` 已创建并发布，Release 已补齐 5 个固件/清单资产。标签工作流最后一步因同名 Release 已预先创建而失败，不影响前置构建、证明和资产上传。
 
 - 本轮 `cmake --build build-host` + `ctest --test-dir build-host --output-on-failure`：63/63 通过；新增 music live control 覆盖八键映射与音量边界。
 - 本轮串音修复：定向 `music_live_control_tests` 通过，覆盖最终按键状态和遗漏 release 的差异检测；ESP-IDF 全量构建按用户偏好留待 GitHub Actions 验证。
