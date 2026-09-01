@@ -11,7 +11,8 @@ bool EncoderPressGesture::trigger_config_if_due(
     std::uint32_t now_ms,
     std::uint32_t hold_ms,
     bool physically_pressed) {
-  if (phase_ != EncoderPressGesturePhase::Pending ||
+  if ((phase_ != EncoderPressGesturePhase::Pending &&
+       phase_ != EncoderPressGesturePhase::FunctionCycleReady) ||
       !physically_pressed ||
       static_cast<std::uint32_t>(now_ms - down_ms_) < hold_ms) {
     return false;
@@ -20,23 +21,27 @@ bool EncoderPressGesture::trigger_config_if_due(
   return true;
 }
 
-EncoderPressReleaseResult EncoderPressGesture::release(
+bool EncoderPressGesture::trigger_function_cycle_if_due(
     std::uint32_t now_ms,
-    std::uint32_t function_cycle_hold_ms,
-    std::uint32_t config_hold_ms) {
+    std::uint32_t hold_ms,
+    bool physically_pressed) {
+  if (phase_ != EncoderPressGesturePhase::Pending || !physically_pressed ||
+      static_cast<std::uint32_t>(now_ms - down_ms_) < hold_ms) {
+    return false;
+  }
+  phase_ = EncoderPressGesturePhase::FunctionCycleReady;
+  return true;
+}
+
+EncoderPressReleaseResult EncoderPressGesture::release() {
   EncoderPressReleaseResult result;
   switch (phase_) {
-    case EncoderPressGesturePhase::Pending: {
-      const auto held_ms = static_cast<std::uint32_t>(now_ms - down_ms_);
-      if (held_ms >= config_hold_ms) {
-        result.open_config_mode = true;
-      } else if (held_ms >= function_cycle_hold_ms) {
-        result.dispatch_function_cycle = true;
-      } else {
-        result.dispatch_click = true;
-      }
+    case EncoderPressGesturePhase::Pending:
+      result.dispatch_click = true;
       break;
-    }
+    case EncoderPressGesturePhase::FunctionCycleReady:
+      result.dispatch_function_cycle = true;
+      break;
     case EncoderPressGesturePhase::ConfigTriggered:
       result.ignored_after_config = true;
       break;
@@ -64,10 +69,26 @@ bool EncoderPressGesture::config_triggered() const {
   return phase_ == EncoderPressGesturePhase::ConfigTriggered;
 }
 
-bool EncoderPressGesture::config_deadline(
+bool EncoderPressGesture::function_cycle_ready() const {
+  return phase_ == EncoderPressGesturePhase::FunctionCycleReady;
+}
+
+bool EncoderPressGesture::function_cycle_deadline(
     std::uint32_t hold_ms,
     std::uint32_t* deadline_ms) const {
   if (phase_ != EncoderPressGesturePhase::Pending || deadline_ms == nullptr) {
+    return false;
+  }
+  *deadline_ms = down_ms_ + hold_ms;
+  return true;
+}
+
+bool EncoderPressGesture::config_deadline(
+    std::uint32_t hold_ms,
+    std::uint32_t* deadline_ms) const {
+  if ((phase_ != EncoderPressGesturePhase::Pending &&
+       phase_ != EncoderPressGesturePhase::FunctionCycleReady) ||
+      deadline_ms == nullptr) {
     return false;
   }
   *deadline_ms = down_ms_ + hold_ms;

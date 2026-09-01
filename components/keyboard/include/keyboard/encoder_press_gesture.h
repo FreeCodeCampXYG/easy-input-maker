@@ -7,6 +7,7 @@ namespace ai_keyboard {
 enum class EncoderPressGesturePhase : std::uint8_t {
   Idle,
   Pending,
+  FunctionCycleReady,
   ConfigTriggered,
 };
 
@@ -24,21 +25,29 @@ class EncoderPressGesture {
  public:
   void press(std::uint32_t now_ms);
 
-  // Transitions Pending -> ConfigTriggered exactly once when the physical
-  // switch remains pressed through the hold deadline.
+  // Transitions Pending -> FunctionCycleReady when the physical switch stays
+  // down through the function-cycle confirmation deadline.
+  bool trigger_function_cycle_if_due(std::uint32_t now_ms,
+                                     std::uint32_t hold_ms,
+                                     bool physically_pressed);
+
+  // Transitions Pending/FunctionCycleReady -> ConfigTriggered exactly once
+  // when the physical switch remains pressed through the configuration deadline.
   bool trigger_config_if_due(std::uint32_t now_ms,
                              std::uint32_t hold_ms,
                              bool physically_pressed);
 
-  // 在松开时按实际按住时长分类，避免中长按抢走原有短按动作。
-  EncoderPressReleaseResult release(std::uint32_t now_ms,
-                                    std::uint32_t function_cycle_hold_ms,
-                                    std::uint32_t config_hold_ms);
+  // 松开只区分短按、已确认功能切换和已进入配置模式；阈值在按住时确认，
+  // 因此用户能根据灯光提示决定何时松开。
+  EncoderPressReleaseResult release();
   void reset();
 
   EncoderPressGesturePhase phase() const;
   bool pending() const;
   bool config_triggered() const;
+  bool function_cycle_ready() const;
+  bool function_cycle_deadline(std::uint32_t hold_ms,
+                               std::uint32_t* deadline_ms) const;
   bool config_deadline(std::uint32_t hold_ms,
                        std::uint32_t* deadline_ms) const;
 

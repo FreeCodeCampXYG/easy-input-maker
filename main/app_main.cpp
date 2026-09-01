@@ -89,8 +89,8 @@ constexpr std::uint32_t kDeepSleepAfterMs =
     ai_keyboard::kDefaultPowerPolicy.deep_sleep_after_ms;
 constexpr std::uint32_t kAwakePowerSampleIntervalMs = 300000;
 constexpr std::uint32_t kAwakeHeartbeatLogIntervalMs = 600000;
-constexpr std::uint32_t kEncoderConfigModeHoldMs = 3000;
-constexpr std::uint32_t kEncoderFunctionCycleHoldMs = 800;
+constexpr std::uint32_t kEncoderFunctionCycleHoldMs = 3000;
+constexpr std::uint32_t kEncoderConfigModeHoldMs = 6000;
 constexpr std::uint32_t kPlatformSelectionModeTimeoutMs = 10000;
 constexpr int kEncoderScrollMaxReportMagnitude = 96;
 constexpr int kEncoderWheelMaxChunkMagnitude = 24;
@@ -1067,6 +1067,7 @@ void handle_ptt_keyboard_audio(AppContext* app,
 
 void toggle_encoder_scroll_axis(AppContext* app);
 void cycle_encoder_function(AppContext* app);
+void show_encoder_function_cycle_ready(AppContext* app);
 void enter_encoder_config_mode(AppContext* app, std::uint32_t effect_now_ms);
 bool flush_encoder_text_selection(AppContext* app);
 
@@ -2297,6 +2298,18 @@ void cycle_encoder_function(AppContext* app) {
 #endif
 }
 
+void show_encoder_function_cycle_ready(AppContext* app) {
+  if (app == nullptr || app->encoder_function_ring.size() == 0U) {
+    return;
+  }
+  const auto next_slot =
+      (app->encoder_function_ring.current() + 1U) % app->encoder_function_ring.size();
+  // 到达三秒后先显示将要切换的槽位，用户松开才提交；继续按住仍可进入配置模式。
+  app->leds.show_function_slot(next_slot + 1U);
+  ESP_LOGI(kTag, "ENC_FUNCTION ready slot=%u release_to_switch",
+           static_cast<unsigned>(next_slot));
+}
+
 void sync_encoder_scroll_axis(AppContext* app) {
   const auto axis = app->config_state.encoder_scroll().axis;
   app->encoder_scroll_axis = axis == ai_keyboard::EncoderScrollAxis::Horizontal
@@ -2319,14 +2332,21 @@ void check_encoder_press_config_hold(AppContext* app,
                                      std::uint32_t observed_ms,
                                      std::uint32_t effect_now_ms,
                                      bool encoder_press_observed) {
-  if (!app->encoder_press_gesture.trigger_config_if_due(
+  if (app == nullptr) {
+    return;
+  }
+  if (app->encoder_press_gesture.trigger_function_cycle_if_due(
+          observed_ms,
+          kEncoderFunctionCycleHoldMs,
+          encoder_press_observed)) {
+    show_encoder_function_cycle_ready(app);
+  }
+  if (app->encoder_press_gesture.trigger_config_if_due(
           observed_ms,
           kEncoderConfigModeHoldMs,
           encoder_press_observed)) {
-    return;
+    enter_encoder_config_mode(app, effect_now_ms);
   }
-
-  enter_encoder_config_mode(app, effect_now_ms);
 }
 
 void enter_encoder_config_mode(AppContext* app, std::uint32_t effect_now_ms) {
@@ -3039,10 +3059,7 @@ bool handle_input_event(const easy_input::InputEvent& event, void* context) {
       return true;
     }
 
-    const auto release = app->encoder_press_gesture.release(
-        event.timestamp_ms,
-        kEncoderFunctionCycleHoldMs,
-        kEncoderConfigModeHoldMs);
+    const auto release = app->encoder_press_gesture.release();
     if (release.dispatch_click) {
       dispatch_encoder_press_click(app);
     } else if (release.dispatch_function_cycle) {
@@ -3682,6 +3699,14 @@ ai_keyboard::AwakeWaitDecision plan_next_awake_work(AppContext* app,
       app->usb_physical_presence.next_update_deadline_ms(&deadline_ms);
   planner.add_deadline(usb_presence_deadline, deadline_ms, "usb_presence");
 
+  deadline_ms = 0;
+  const bool encoder_function_cycle_deadline =
+      app->encoder_press_gesture.function_cycle_deadline(
+          kEncoderFunctionCycleHoldMs, &deadline_ms);
+  planner.add_deadline(
+      encoder_function_cycle_deadline,
+      deadline_ms,
+      "encoder_function_cycle_hold");
   deadline_ms = 0;
   const bool encoder_hold_deadline =
       app->encoder_press_gesture.config_deadline(
