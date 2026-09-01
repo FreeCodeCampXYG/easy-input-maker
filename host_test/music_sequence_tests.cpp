@@ -42,10 +42,32 @@ void builtin_ode_to_joy_is_compact_and_playable() {
   assert(!ai_keyboard::builtin_music_sequence(99).has_value());
 }
 
+void pause_and_resume_keep_the_loaded_song() {
+  ai_keyboard::MusicSequence sequence;
+  sequence.command = ai_keyboard::MusicSequenceCommand::Play;
+  sequence.event_count = 1;
+  sequence.events[0] = {0, 4, 100};
+  ai_keyboard::MusicSynth synth;
+  ai_keyboard::MusicConfig config;
+  config.enabled = true;
+  assert(synth.apply_config(config));
+  ai_keyboard::MusicSequencePlayer player;
+  assert(player.load(sequence));
+  ai_keyboard::MusicSequence pause;
+  pause.command = ai_keyboard::MusicSequenceCommand::Pause;
+  assert(player.load(pause) && player.paused());
+  player.advance(48000, &synth);
+  assert(player.playing());
+  ai_keyboard::MusicSequence resume;
+  resume.command = ai_keyboard::MusicSequenceCommand::Resume;
+  assert(player.load(resume) && !player.paused());
+}
+
 }  // namespace
 
 int main() {
   protocol_round_trip_and_player_progress();
   builtin_ode_to_joy_is_compact_and_playable();
+  pause_and_resume_keep_the_loaded_song();
   return 0;
 }

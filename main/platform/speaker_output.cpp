@@ -576,7 +576,23 @@ bool SpeakerOutput::queue_music_note(std::size_t key_index, bool pressed) {
   const auto tail = (music_command_head_ + music_command_count_) %
                     kMusicCommandCapacity;
   music_commands_[tail] = {
-      static_cast<std::uint8_t>(key_index), pressed};
+      static_cast<std::uint8_t>(key_index), pressed, false,
+      ai_keyboard::DrumVoice::Click, 100};
+  ++music_command_count_;
+  portEXIT_CRITICAL(&music_mux_);
+  return true;
+}
+
+bool SpeakerOutput::queue_drum_hit(ai_keyboard::DrumVoice drum,
+                                   std::uint8_t velocity_percent) {
+  if (!music_active()) return false;
+  portENTER_CRITICAL(&music_mux_);
+  if (music_command_count_ == kMusicCommandCapacity) {
+    portEXIT_CRITICAL(&music_mux_);
+    return false;
+  }
+  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+  music_commands_[tail] = {0U, true, true, drum, velocity_percent};
   ++music_command_count_;
   portEXIT_CRITICAL(&music_mux_);
   return true;
@@ -1374,7 +1390,10 @@ void SpeakerOutput::consume_music_commands() {
   portEXIT_CRITICAL(&music_mux_);
 
   for (std::size_t index = 0; index < count; ++index) {
-    if (commands[index].pressed) {
+    if (commands[index].drum) {
+      music_synth_.trigger_drum(commands[index].drum_voice,
+                                commands[index].velocity_percent);
+    } else if (commands[index].pressed) {
       music_synth_.note_on(commands[index].key_index);
     } else {
       music_synth_.note_off(commands[index].key_index);

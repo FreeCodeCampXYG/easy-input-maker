@@ -13,6 +13,16 @@ constexpr std::array<std::int8_t, kMusicKeyCount> kMajor{{0, 2, 4, 5, 7, 9, 11, 
 constexpr std::array<std::int8_t, kMusicKeyCount> kNaturalMinor{{0, 2, 3, 5, 7, 8, 10, 12}};
 constexpr std::array<std::int8_t, kMusicKeyCount> kPentatonicMajor{{0, 2, 4, 7, 9, 12, 14, 16}};
 
+std::uint32_t drum_increment(DrumVoice drum) {
+  switch (drum) {
+    case DrumVoice::Kick: return 120000000U;
+    case DrumVoice::Snare: return 700000000U;
+    case DrumVoice::HiHat: return 1400000000U;
+    case DrumVoice::Click: return 1800000000U;
+  }
+  return 0U;
+}
+
 const std::array<std::int8_t, kMusicKeyCount>& scale_offsets(MusicScale scale) {
   switch (scale) {
     case MusicScale::Major: return kMajor;
@@ -120,7 +130,32 @@ bool MusicSynth::note_off(std::size_t key_index) {
   return changed;
 }
 
+bool MusicSynth::trigger_drum(DrumVoice drum, std::uint8_t velocity_percent) {
+  Voice* selected = nullptr;
+  for (auto& voice : voices_) if (!voice.active) { selected = &voice; break; }
+  if (selected == nullptr) selected = &voices_[0];
+  *selected = {};
+  selected->active = true;
+  selected->percussion = true;
+  selected->drum = drum;
+  selected->increment = drum_increment(drum);
+  selected->velocity_q15 = static_cast<std::uint32_t>(
+      std::min<std::uint8_t>(velocity_percent, 100U)) * 32767U / 100U;
+  selected->level_q15 = 32767U;
+  selected->envelope = Envelope::Release;
+  return true;
+}
+
 std::int32_t MusicSynth::waveform(const Voice& voice) const {
+  if (voice.percussion) {
+    std::uint32_t noise = voice.phase ^ (voice.phase >> 7U) ^ (voice.phase >> 13U);
+    const auto sample = static_cast<std::int32_t>(noise & 0xFFFFU) - 32768;
+    if (voice.drum == DrumVoice::Kick) {
+      return static_cast<std::int32_t>((32767LL * (32767 - static_cast<std::int32_t>(voice.phase >> 17U))) / 32767LL);
+    }
+    if (voice.drum == DrumVoice::Click) return sample / 2;
+    return sample;
+  }
   const std::int32_t saw = static_cast<std::int32_t>(voice.phase >> 16U) - 32768;
   const std::int32_t triangle = 32767 - std::abs(saw * 2);
   switch (voice.timbre) {

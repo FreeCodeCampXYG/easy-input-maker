@@ -46,6 +46,8 @@ class SpeakerOutput {
   bool set_music_config(const ai_keyboard::MusicConfig& config);
   bool set_music_sequence(const ai_keyboard::MusicSequence& sequence);
   bool queue_music_note(std::size_t key_index, bool pressed);
+  bool queue_drum_hit(ai_keyboard::DrumVoice drum,
+                      std::uint8_t velocity_percent = 100);
   std::uint8_t adjust_music_volume(int delta_percent);
   std::uint8_t music_volume_percent() const;
   bool music_active() const;
@@ -170,6 +172,9 @@ class SpeakerOutput {
   struct MusicCommand {
     std::uint8_t key_index = 0;
     bool pressed = false;
+    bool drum = false;
+    ai_keyboard::DrumVoice drum_voice = ai_keyboard::DrumVoice::Click;
+    std::uint8_t velocity_percent = 100;
   };
   static constexpr std::size_t kMusicCommandCapacity = 16;
   ai_keyboard::MusicSynth music_synth_;

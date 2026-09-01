@@ -104,7 +104,7 @@ const std::uint8_t kHidReportDescriptor[] = {
     0x75, 0x08,        //   Report Size (8)
     0x95, 0x3F,        //   Report Count (63)
     0x09, 0x08,        //   Usage (Vendor Usage 8)
-    0xB1, 0x02,        //   Feature (Data,Var,Abs)
+    0x91, 0x02,        //   Output (Data,Var,Abs) - host status request
     0x09, 0x08,        //   Usage (Vendor Usage 8)
     0x91, 0x02,        //   Output (Data,Var,Abs)
     0x95, 0x01,        //   Report Count (1)
@@ -2037,7 +2037,8 @@ extern "C" void tud_hid_set_report_cb(uint8_t instance,
   } else if (report_id == easy_input::kReportIdAgentStatus &&
              easy_input::s_active_transport != nullptr) {
     easy_input::s_active_transport->receive_agent_status_report(buffer, bufsize);
-  } else if (report_type == HID_REPORT_TYPE_FEATURE &&
+  } else if ((report_type == HID_REPORT_TYPE_FEATURE ||
+              report_type == HID_REPORT_TYPE_OUTPUT) &&
              easy_input::s_active_transport != nullptr &&
              (report_id == easy_input::kReportIdStatusRequest ||
               (bufsize == ai_keyboard::kStatusRequestPayloadLen + 1 &&

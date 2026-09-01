@@ -43,6 +43,8 @@ class StatusLedStrip {
   bool cold_boot_sequence_active() const;
   void show_raw_color(Rgb color);
   void show_pixel(std::size_t index, Rgb color);
+  // 用五颗灯的低位位图显示功能槽位：槽位从 1 开始，bit0 对应第一颗灯。
+  void show_function_slot(std::size_t slot_number);
   void set_agent_status(const ai_keyboard::AgentStatusCommand& command,
                         std::uint32_t now_ms);
   void show_scroll_event(std::int8_t vertical,

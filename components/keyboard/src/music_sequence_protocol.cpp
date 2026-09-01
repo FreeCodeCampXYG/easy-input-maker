@@ -6,9 +6,8 @@ bool encode_music_sequence(const MusicSequence& sequence,
                            std::array<std::uint8_t, kMusicSequencePayloadLen>* payload) {
   if (payload == nullptr || sequence.event_count > kMusicSequenceMaxEvents ||
       sequence.bpm < 20 || sequence.bpm > 300 ||
-      (sequence.command != MusicSequenceCommand::Stop &&
-       sequence.command != MusicSequenceCommand::Play &&
-       sequence.command != MusicSequenceCommand::Builtin)) {
+      static_cast<std::uint8_t>(sequence.command) >
+          static_cast<std::uint8_t>(MusicSequenceCommand::Resume)) {
     return false;
   }
   if (sequence.command == MusicSequenceCommand::Builtin &&
@@ -23,7 +22,10 @@ bool encode_music_sequence(const MusicSequence& sequence,
   (*payload)[7] = static_cast<std::uint8_t>(sequence.bpm >> 8U);
   (*payload)[8] = sequence.event_count;
   (*payload)[9] = sequence.builtin_id;
-  if (sequence.command == MusicSequenceCommand::Builtin) return true;
+  if (sequence.command == MusicSequenceCommand::Builtin ||
+      sequence.command == MusicSequenceCommand::Pause ||
+      sequence.command == MusicSequenceCommand::Resume ||
+      sequence.command == MusicSequenceCommand::Stop) return true;
   for (std::size_t index = 0; index < sequence.event_count; ++index) {
     const auto& event = sequence.events[index];
     if ((event.degree != kMusicSequenceRest && event.degree > 7) ||
@@ -47,7 +49,7 @@ std::optional<MusicSequence> decode_music_sequence(const std::uint8_t* payload,
   if (payload == nullptr || length != kMusicSequencePayloadLen ||
       payload[0] != 'S' || payload[1] != 'E' || payload[2] != 'Q' ||
       payload[3] != '1' || payload[4] != kMusicSequenceVersion ||
-      payload[5] > static_cast<std::uint8_t>(MusicSequenceCommand::Builtin) ||
+      payload[5] > static_cast<std::uint8_t>(MusicSequenceCommand::Resume) ||
       payload[8] > kMusicSequenceMaxEvents) {
     return std::nullopt;
   }

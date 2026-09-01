@@ -13,6 +13,7 @@ constexpr std::size_t kMusicMaxVoices = 3;
 
 enum class MusicScale : std::uint8_t { Major, NaturalMinor, PentatonicMajor, Custom };
 enum class MusicTimbre : std::uint8_t { SoftPiano, Organ, Bell, Pluck };
+enum class DrumVoice : std::uint8_t { Kick, Snare, HiHat, Click };
 
 struct MusicConfig {
   bool enabled = false;
@@ -39,6 +40,7 @@ class MusicSynth {
   const MusicConfig& config() const;
   bool note_on(std::size_t key_index, std::uint8_t velocity_percent = 100);
   bool note_off(std::size_t key_index);
+  bool trigger_drum(DrumVoice drum, std::uint8_t velocity_percent = 100);
   void render(std::int16_t* samples, std::size_t sample_count);
   bool active() const;
   bool metronome_running() const;
@@ -57,6 +59,8 @@ class MusicSynth {
     std::uint32_t velocity_q15 = 32767;
     Envelope envelope = Envelope::Attack;
     MusicTimbre timbre = MusicTimbre::SoftPiano;
+    bool percussion = false;
+    DrumVoice drum = DrumVoice::Click;
   };
 
   std::int32_t waveform(const Voice& voice) const;

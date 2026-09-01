@@ -53,6 +53,12 @@ void decodes_payload_with_or_without_report_id() {
   assert(request.request_id == kRequestId);
   assert(request.flags == ai_keyboard::kStatusRequestFlagFresh);
 
+  payload = request_payload(kRequestId, ai_keyboard::kStatusRequestFlagFresh |
+                                      ai_keyboard::kStatusRequestFlagDiagnostics);
+  assert(ai_keyboard::decode_status_hid_request(payload.data(), payload.size(), &request));
+  assert(request.flags == (ai_keyboard::kStatusRequestFlagFresh |
+                           ai_keyboard::kStatusRequestFlagDiagnostics));
+
   std::array<std::uint8_t, ai_keyboard::kStatusRequestPayloadLen + 1> prefixed{};
   prefixed[0] = ai_keyboard::kStatusRequestReportId;
   std::copy(payload.begin(), payload.end(), prefixed.begin() + 1);
@@ -60,7 +66,8 @@ void decodes_payload_with_or_without_report_id() {
   assert(ai_keyboard::decode_status_hid_request(
       prefixed.data(), prefixed.size(), &request));
   assert(request.request_id == kRequestId);
-  assert(request.flags == ai_keyboard::kStatusRequestFlagFresh);
+  assert(request.flags == (ai_keyboard::kStatusRequestFlagFresh |
+                           ai_keyboard::kStatusRequestFlagDiagnostics));
 }
 
 void rejects_malformed_requests() {
@@ -83,11 +90,7 @@ void rejects_malformed_requests() {
   assert(!ai_keyboard::decode_status_hid_request(
       payload.data(), payload.size(), &request));
 
-  payload = request_payload(1, 0x02);
-  assert(!ai_keyboard::decode_status_hid_request(
-      payload.data(), payload.size(), &request));
-
-  payload = request_payload(1, 0x03);
+  payload = request_payload(1, 0x04);
   assert(!ai_keyboard::decode_status_hid_request(
       payload.data(), payload.size(), &request));
 

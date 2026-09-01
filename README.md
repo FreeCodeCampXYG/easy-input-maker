@@ -10,9 +10,9 @@ EasyInput Maker 是面向 **EasyInput V2.0 / ESP32-S3** 的 WaytoAGI 社区固�
 
 ![EasyInput 音乐配置与播放原理图](docs/configuration-architecture.svg)
 
-当前音乐链路已经包含：MUS1 音乐参数、SEQ1 临时简谱播放、KEY1—KEY8 钢琴音符、强拍/弱拍节拍器 click、旋钮音量和唯一 I2S1 音频所有权。用户编辑曲目只在当前 Studio 播放会话和 Maker RAM 队列中存在，不写入 Maker NVS；music_v1 仅保存根音、调式、BPM、拍号等设备参数。
+当前音乐链路已经包含：MUS1 音乐参数、SEQ1 简谱播放/暂停/继续/停止、KEY1—KEY8 钢琴音符、强拍/弱拍节拍器 click、旋钮音量和唯一 I2S1 音频所有权。播放或内置曲目会保存为设备 NVS 的 `song_v1`，启动只恢复曲目数据，不自动发声；`music_v1` 保存根音、调式、BPM、拍号等设备参数。
 
-当前尚未实现完整多轨鼓机（Kick/Snare/Hi-hat 等鼓点采样）和语音控制；实板发声、音量方向、麦克风抢占与曲目时序仍需硬件观察。
+旋钮短按在带扬声器构建中循环切换“键盘→音乐→鼓机”；鼓机 KEY1—KEY4 使用固件合成 Kick、Snare、Hi-hat、Click，不引入额外音频资源。语音控制和实板动态听感仍需后续验证。
 
 > 当前状态：当前公开候选已在 EasyInput V2.0 实板完成联合功能测试；按键、编码器、灯光、USB/BLE、麦克风、扬声器、电源与启动恢复等主流程观察正常。构建、烧录与本次实板观察仍是不同证据。
 >

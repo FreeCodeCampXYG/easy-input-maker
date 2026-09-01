@@ -179,7 +179,8 @@ struct AppContext {
     defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
   easy_input::SpeakerOutput speaker;
   // 钢琴模式默认拦截八个实体键，避免同一次按下既发声又向主机发送旧键盘动作。
-  bool music_mode_enabled = true;
+  // 默认从键盘槽开始；若 NVS 有已保存音乐配置，启动加载时再同步到音乐槽。
+  bool music_mode_enabled = false;
 #endif
 #if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC)
   bool speaker_probe_pending = false;
@@ -209,11 +210,12 @@ struct AppContext {
   ai_keyboard::EncoderFunctionRing encoder_function_ring{
 #if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
     defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
-      2U
+      3U
 #else
       1U
 #endif
   };
+  bool drum_mode_enabled = false;
   std::uint16_t battery_mv = 0;
   std::uint16_t battery_raw_mv = 0;
   std::uint8_t battery_percent = 0;
@@ -1451,7 +1453,11 @@ void dispatch_firmware_event(AppContext* app,
 
 void dispatch_encoder_press_click(AppContext* app) {
   const auto& action = app->config_state.keymap().action_for(ai_keyboard::InputId::EncoderPress);
-  if (action.kind == ai_keyboard::ActionKind::FunctionCycle) {
+  // 旧版已保存的 settings/scroll_axis_toggle 也迁移到实体旋钮循环，
+  // 否则 DefaultKeymap 的新动作永远不会覆盖 NVS 中的旧按键映射。
+  if (action.kind == ai_keyboard::ActionKind::FunctionCycle ||
+      action.kind == ai_keyboard::ActionKind::Settings ||
+      action.kind == ai_keyboard::ActionKind::ScrollAxisToggle) {
     cycle_encoder_function(app);
     return;
   }
@@ -2251,6 +2257,8 @@ void cycle_encoder_function(AppContext* app) {
     return;
   }
   const auto slot = app->encoder_function_ring.advance();
+  // 环形索引内部从 0 开始，灯位协议从 1 开始；显示前转换，避免用户看到“全灭”而误判切换失败。
+  app->leds.show_function_slot(slot + 1U);
 #if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
     defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
   // 槽位 0 保持键盘输入，槽位 1 进入音乐输入；先切换输入门闸，
@@ -2260,6 +2268,7 @@ void cycle_encoder_function(AppContext* app) {
       app->speaker.stop_music();
     }
     app->music_mode_enabled = false;
+    app->drum_mode_enabled = false;
     ESP_LOGI(kTag, "ENC_FUNCTION slot=0 keyboard");
     return;
   }
@@ -2278,7 +2287,9 @@ void cycle_encoder_function(AppContext* app) {
     return;
   }
   app->music_mode_enabled = true;
-  ESP_LOGI(kTag, "ENC_FUNCTION slot=1 music");
+  app->drum_mode_enabled = slot == 2U;
+  ESP_LOGI(kTag, "ENC_FUNCTION slot=%u %s", static_cast<unsigned>(slot),
+           app->drum_mode_enabled ? "drum" : "music");
 #else
   (void)slot;
   toggle_encoder_scroll_axis(app);
@@ -2898,6 +2909,24 @@ void flush_input_led_feedback(AppContext* app) {
 bool dispatch_music_key(AppContext* app,
                         ai_keyboard::InputId input,
                         ai_keyboard::InputPhase phase) {
+  if (app != nullptr && app->drum_mode_enabled) {
+    if (phase != ai_keyboard::InputPhase::Pressed) return true;
+    ai_keyboard::DrumVoice drum = ai_keyboard::DrumVoice::Click;
+    switch (input) {
+      case ai_keyboard::InputId::Key1: drum = ai_keyboard::DrumVoice::Kick; break;
+      case ai_keyboard::InputId::Key2: drum = ai_keyboard::DrumVoice::Snare; break;
+      case ai_keyboard::InputId::Key3: drum = ai_keyboard::DrumVoice::HiHat; break;
+      case ai_keyboard::InputId::Key4: drum = ai_keyboard::DrumVoice::Click; break;
+      default: return true;
+    }
+    if (!app->speaker.ready() &&
+        (!app->speaker.shutdown_complete() ||
+         app->speaker.begin(app->platform_task, &app->audio_io_arbiter) != ESP_OK)) {
+      return false;
+    }
+    if (!app->speaker.request_music()) return false;
+    return app->speaker.queue_drum_hit(drum);
+  }
   const auto key_index = ai_keyboard::music_key_index_for_input(input);
   if (app == nullptr || !app->music_mode_enabled || !key_index) {
     return false;
@@ -3137,7 +3166,11 @@ bool apply_music_config(AppContext* app,
   }
   // 音乐开关先于输入分发更新，避免配置关闭后旧按键路径仍被钢琴拦截。
   app->music_mode_enabled = config.enabled;
+  app->drum_mode_enabled = false;
   app->encoder_function_ring.set_current(config.enabled ? 1U : 0U);
+  if (source == nullptr || std::string_view(source) != "boot") {
+    app->leds.show_function_slot(config.enabled ? 2U : 1U);
+  }
   if (config.enabled && config.metronome_enabled) {
     if (!app->speaker.ready() &&
         (!app->speaker.shutdown_complete() ||
@@ -3169,6 +3202,20 @@ void load_stored_music_config(AppContext* app) {
   }
 }
 
+void load_stored_song(AppContext* app) {
+  std::array<std::uint8_t, ai_keyboard::kMusicSequencePayloadLen> payload{};
+  esp_err_t err = ESP_OK;
+  if (!app->config_store.load_song(&payload, &err)) return;
+  const auto song = ai_keyboard::decode_music_sequence(payload.data(), payload.size());
+  if (!song || song->command != ai_keyboard::MusicSequenceCommand::Play) {
+    ESP_LOGW(kTag, "MUSIC_SEQUENCE song_v1 rejected");
+    return;
+  }
+  // 仅恢复到 RAM，避免上电自动发声；Studio/用户显式播放时才提交到 I2S。
+  ESP_LOGI(kTag, "MUSIC_SEQUENCE song_v1 ready events=%u bpm=%u",
+           static_cast<unsigned>(song->event_count), static_cast<unsigned>(song->bpm));
+}
+
 void apply_pending_music_config(AppContext* app) {
   ai_keyboard::MusicConfig config;
   std::uint32_t endpoint_epoch = 0;
@@ -3194,6 +3241,9 @@ void apply_pending_music_sequence(AppContext* app) {
   ai_keyboard::MusicSequence sequence;
   std::uint32_t endpoint_epoch = 0;
   if (!app->usb.take_pending_music_sequence(&sequence, &endpoint_epoch)) return;
+  std::array<std::uint8_t, ai_keyboard::kMusicSequencePayloadLen> song_payload{};
+  const bool persist_song = sequence.command == ai_keyboard::MusicSequenceCommand::Play ||
+                            sequence.command == ai_keyboard::MusicSequenceCommand::Builtin;
   if (sequence.command == ai_keyboard::MusicSequenceCommand::Builtin) {
     const auto builtin = ai_keyboard::builtin_music_sequence(sequence.builtin_id);
     if (!builtin) {
@@ -3205,13 +3255,21 @@ void apply_pending_music_sequence(AppContext* app) {
     }
     sequence = *builtin;
   }
+  if (persist_song && ai_keyboard::encode_music_sequence(sequence, &song_payload)) {
+    esp_err_t save_err = ESP_OK;
+    if (!app->config_store.save_song(song_payload, &save_err)) {
+      ESP_LOGW(kTag, "MUSIC_SEQUENCE song_v1 save failed: %s", esp_err_to_name(save_err));
+    }
+  }
   if (!app->speaker.ready() &&
       (!app->speaker.shutdown_complete() ||
        app->speaker.begin(app->platform_task, &app->audio_io_arbiter) != ESP_OK)) {
     return;
   }
+  const bool control_only = sequence.command == ai_keyboard::MusicSequenceCommand::Pause ||
+                            sequence.command == ai_keyboard::MusicSequenceCommand::Resume;
   const bool applied = app->speaker.set_music_sequence(sequence) &&
-                       (sequence.command == ai_keyboard::MusicSequenceCommand::Stop ||
+                       (control_only || sequence.command == ai_keyboard::MusicSequenceCommand::Stop ||
                         app->speaker.request_music());
   app->usb.send_config_ack_for_epoch(
       0x17, applied, static_cast<std::uint16_t>(ai_keyboard::kMusicSequencePayloadLen),
@@ -3469,14 +3527,17 @@ void process_pending_status_refresh(AppContext* app, std::uint32_t now_ms) {
     // A USB status response doubles as recovery after a lost config ACK, so
     // its fingerprint must describe the currently applied/persisted config,
     // not the 0x13 request itself. An empty config is the valid factory case.
+    const bool diagnostic_requested =
+        (usb_request.flags & ai_keyboard::kStatusRequestFlagDiagnostics) != 0;
+    // 诊断请求单独选择 diag 阶段，确保音频状态较长时仍保留输入/旋钮遥测；普通状态继续走原确认视图。
     const auto status_json = publish_config_status(
         app,
-        "status",
+        diagnostic_requested ? "diag" : "status",
         sampled ? "fresh" : "cached",
         applied_json.size(),
         applied_crc,
         true,
-        true);
+        !diagnostic_requested);
     if (status_json.empty() ||
         !app->usb.queue_status_response_for_epoch(
             usb_request.request_id, status_json, usb_request_epoch)) {
@@ -3845,6 +3906,7 @@ extern "C" void app_main(void) {
 #if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
     defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
   load_stored_music_config(&app);
+  load_stored_song(&app);
 #endif
 #if defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
   // Keep the microphone's frozen resource pool first. The platform loop then

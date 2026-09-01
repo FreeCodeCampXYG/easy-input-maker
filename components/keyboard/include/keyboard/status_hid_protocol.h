@@ -15,7 +15,9 @@ inline constexpr std::size_t kStatusRequestPayloadLen = 16;
 inline constexpr std::uint8_t kStatusHidProtocolVersion = 1;
 inline constexpr std::uint8_t kStatusRequestFlagsNone = 0;
 inline constexpr std::uint8_t kStatusRequestFlagFresh = 0x01;
-inline constexpr std::uint8_t kStatusRequestKnownFlags = kStatusRequestFlagFresh;
+inline constexpr std::uint8_t kStatusRequestFlagDiagnostics = 0x02;
+inline constexpr std::uint8_t kStatusRequestKnownFlags =
+    kStatusRequestFlagFresh | kStatusRequestFlagDiagnostics;
 
 inline constexpr std::uint8_t kStatusResponseCommandKind = 0x04;
 inline constexpr std::size_t kStatusAppCommandPayloadLen = 63;

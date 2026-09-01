@@ -7,6 +7,7 @@
 #include "esp_err.h"
 #include "keyboard/keymap.h"
 #include "keyboard/music_config_protocol.h"
+#include "keyboard/music_sequence_protocol.h"
 
 namespace easy_input {
 
@@ -36,6 +37,12 @@ class NvsConfigStore {
       esp_err_t* out_err = nullptr) const;
   bool save_music_config(
       const std::array<std::uint8_t, ai_keyboard::kMusicConfigPayloadLen>& payload,
+      esp_err_t* out_err = nullptr) const;
+  bool load_song(
+      std::array<std::uint8_t, ai_keyboard::kMusicSequencePayloadLen>* payload,
+      esp_err_t* out_err = nullptr) const;
+  bool save_song(
+      const std::array<std::uint8_t, ai_keyboard::kMusicSequencePayloadLen>& payload,
       esp_err_t* out_err = nullptr) const;
 };
 

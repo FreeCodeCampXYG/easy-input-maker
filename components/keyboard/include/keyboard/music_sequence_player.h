@@ -14,6 +14,7 @@ class MusicSequencePlayer {
   void stop(MusicSynth* synth);
   void advance(std::size_t sample_count, MusicSynth* synth);
   bool playing() const;
+  bool paused() const;
 
  private:
   MusicSequence sequence_{};
@@ -21,6 +22,7 @@ class MusicSequencePlayer {
   std::uint32_t event_frames_remaining_ = 0;
   std::uint64_t frame_remainder_ = 0;
   bool playing_ = false;
+  bool paused_ = false;
 };
 
 }  // namespace ai_keyboard

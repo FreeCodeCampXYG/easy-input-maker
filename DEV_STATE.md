@@ -1,12 +1,31 @@
 # EasyInput Maker 开发状态
 
+## 2026-09-02：修复外部诊断状态请求报告类型
+
+- 根因：状态请求 `0x13` 在 USB 描述符中声明为 Feature Report，但现有 Flasher Go HID 库只能发送 Output Report，导致请求无法进入 Maker 回调。
+- 修复：将 Vendor 状态请求 `0x13` 声明为 16 字节 Output Report；回调同时兼容 Feature/Output，保留原请求格式、状态响应和 512 字节预算。
+- 验证：`config_status_tests`、`status_hid_protocol_tests` 通过；需用新固件重新构建/烧录后才能验证 Flasher 实机回报。
+
+## 2026-09-01：外部烧录器复用板级状态遥测
+
+- 保持现有 Vendor HID 状态报告和 512 字节预算不变；状态 JSON 已提供 `diag.last`、`diag.in_evt`、`diag.enc_step`、电池/供电字段，供外部工具做初步排查。
+- 未新增常驻诊断服务或大型资源；具体按键业务动作仍由固件配置决定。
+- Flasher 端读取与动态轮询已完成静态联调，真实 Windows HID 回报和实板功能仍待验证。
+- Vendor HID 状态请求增加 1 bit `diagnostics` 标志；请求带该标志时沿用 `diag` 阶段输出详细输入/旋钮字段，不改变报告大小和旧请求兼容。
+
 ## 当前目标
 
 - 维护 `my-host-action-practice` 的可复现宿主测试与 ESP-IDF 5.5.5 构建门禁。
 - 将八个实体键作为离线钢琴接入既有 `SpeakerOutput`，旋钮调节音量，不新建并行 I2S 所有者。
 - 实现旋钮短按的环形功能切换，替代高频桌面端切换；当前槽位为键盘/音乐。
+- 修复已发布版本中旧 NVS 配置导致旋钮短按不进入环形切换的问题。
+- 功能切换反馈使用 5 颗 WS2812 的低位位图：槽位编号从 1 开始，bit0 对应第一颗灯；例如 1=00001、2=00010、3=00011，环回仍由 `EncoderFunctionRing` 保证。
+- 本轮将环形功能扩展为键盘/音乐/鼓机三槽；鼓机 KEY1—KEY4 分别合成 Kick、Snare、Hi-hat、Click，继续复用 GPIO8 共享电源和唯一 I2S owner。
+- `SEQ1` 增加 Pause/Resume 控制，播放或内置曲目接收时保存 `song_v1`；启动仅校验并恢复曲目到 RAM，不自动发声。
 
 ## 已完成
+
+- 修复旋钮切换状态错位：启动默认从键盘槽开始，旧配置中的 `settings`/`scroll_axis_toggle` 按压动作也迁移到 `function_cycle`；鼓槽位的非鼓键释放不再回落到普通键盘路径。
 
 - 多键发声首轮修复：音乐会话启动时清空上一会话的按键位图与边沿队列；同一按键的重复同状态边沿不再重复触发包络；三声部混音按最大复音数预留动态余量，降低和弦削波失真。
 - `SEQ1/0x17` 时序测试已按协议实际语义修正：时值字段以十六分拍数编码，`4` 代表一拍；两个 120 BPM 事件共需 48000 帧后结束。
@@ -41,8 +60,11 @@
 
 ## 验证
 
+- 本轮 `cmake --build build-host --parallel` 与 `ctest --test-dir build-host --output-on-failure`：65/65 通过；`git diff --check` 通过。ESP-IDF/实板验证尚未执行。
+
 - 本轮定向 `music_synth_tests` 与 `music_live_control_tests`：2/2 通过；宿主增量构建成功，`git diff --check` 通过。
 - 本轮完整 CTest：64/64 通过；覆盖 `MUS1`、`SEQ1`、音乐合成、实时按键状态和既有固件回归。
+- 本轮完整 CTest：65/65 通过；Studio `go test ./...` 与前端 `npm run build` 通过。ESP-IDF 命令已进入受管环境，但项目 build 使用了旧 Python 环境，未取得本轮源码重编译证据。
 - Studio `go test ./...` 与前端 `npm run build` 均通过。
 - 内置曲目覆盖测试通过：曲目编号校验、事件容量限制和首音符内容均已加入宿主测试。
 - GitHub Actions run `33360808188` 的固件验证通过；标签 `firmware-v0.2.3` 已创建并发布，Release 已补齐 5 个固件/清单资产。标签工作流最后一步因同名 Release 已预先创建而失败，不影响前置构建、证明和资产上传。
@@ -63,6 +85,7 @@
 - `SEQ1` 力度扩展尚未在 ESP-IDF 构建、烧录或实板动态听感上验证；报告长度和旧编码兼容性已有宿主/Studio 测试覆盖。
 
 - 离线钢琴已进入 `SpeakerOutput` 的唯一 I2S1 所有权模型；USB `0x16` 与独立 NVS 的工作区改动尚未做独立端到端验收。本版本已完成普通烧录并检测到正常模式，音量方向、音准、手感、节拍器和麦克风抢占均仍待实板验证。
+- 鼓机合成、SEQ1 暂停/继续、`song_v1` NVS 和三槽切换尚未在 ESP-IDF 重编译、烧录或实板听感上验证；Kick/Snare/Hi-hat/Click 的音色仍属于固件合成初版。
 - 本轮串音修复尚未经 ESP-IDF 全量编译、烧录或实板验证；在 GitHub Actions 产物验证后，仍须重新验明设备并取得确认才可写入。
 - 新的固件 Release 流程尚未在 GitHub Actions 或真实设备验证；现有 `my-host-action-practice-v1.1` 缺少新 manifest，桌面端会安全地忽略它。
 - Actions 日志有 Node.js 20 弃用提示；当前不阻断工作流。

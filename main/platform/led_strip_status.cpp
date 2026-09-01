@@ -211,6 +211,27 @@ void StatusLedStrip::show_pixel(std::size_t index, Rgb color) {
   idle_rendered_ = false;
 }
 
+void StatusLedStrip::show_function_slot(std::size_t slot_number) {
+  cold_boot_sequence_.cancel();
+  deferred_feedback_.clear();
+  active_feedback_ = {};
+  effect_until_ms_ = 0;
+  last_frame_ms_ = 0;
+  cursor_ = 0;
+  set_all({});
+  const auto mask = static_cast<std::uint32_t>(slot_number == 0U ? 1U : slot_number);
+  for (std::size_t index = 0; index < leds_.size(); ++index) {
+    if ((mask & (1U << index)) != 0U) {
+      // 功能指示保持低亮度，避免覆盖输入反馈时造成过曝。
+      leds_[index] = {0, 18, 24};
+    }
+  }
+  if (ready()) {
+    flush();
+  }
+  idle_rendered_ = true;
+}
+
 void StatusLedStrip::clear() {
   cold_boot_sequence_.cancel();
   deferred_feedback_.clear();

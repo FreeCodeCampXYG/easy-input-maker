@@ -3,6 +3,14 @@
 namespace ai_keyboard {
 
 bool MusicSequencePlayer::load(const MusicSequence& sequence) {
+  if (sequence.command == MusicSequenceCommand::Pause) {
+    if (playing_) paused_ = true;
+    return true;
+  }
+  if (sequence.command == MusicSequenceCommand::Resume) {
+    if (playing_) paused_ = false;
+    return true;
+  }
   if (sequence.command != MusicSequenceCommand::Play || sequence.event_count == 0 ||
       sequence.bpm < 20 || sequence.bpm > 300) {
     return false;
@@ -12,6 +20,7 @@ bool MusicSequencePlayer::load(const MusicSequence& sequence) {
   event_frames_remaining_ = 0;
   frame_remainder_ = 0;
   playing_ = true;
+  paused_ = false;
   return true;
 }
 
@@ -21,11 +30,12 @@ void MusicSequencePlayer::stop(MusicSynth* synth) {
     synth->note_off(sequence_.events[event_index_].degree);
   }
   playing_ = false;
+  paused_ = false;
   event_frames_remaining_ = 0;
 }
 
 void MusicSequencePlayer::advance(std::size_t sample_count, MusicSynth* synth) {
-  if (!playing_ || synth == nullptr) return;
+  if (!playing_ || paused_ || synth == nullptr) return;
   const auto frames_per_sixteenth_num =
       static_cast<std::uint64_t>(kMusicSampleRate) * 60U;
   const auto frames_per_sixteenth_den = static_cast<std::uint64_t>(sequence_.bpm) * 4U;
@@ -60,5 +70,7 @@ void MusicSequencePlayer::advance(std::size_t sample_count, MusicSynth* synth) {
 }
 
 bool MusicSequencePlayer::playing() const { return playing_; }
+
+bool MusicSequencePlayer::paused() const { return paused_; }
 
 }  // namespace ai_keyboard

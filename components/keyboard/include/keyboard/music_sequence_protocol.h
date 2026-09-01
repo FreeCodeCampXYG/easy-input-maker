@@ -13,7 +13,9 @@ constexpr std::size_t kMusicSequencePayloadLen = 63;
 constexpr std::size_t kMusicSequenceMaxEvents = 27;
 constexpr std::uint8_t kMusicSequenceRest = 0xFF;
 
-enum class MusicSequenceCommand : std::uint8_t { Stop = 0, Play = 1, Builtin = 2 };
+enum class MusicSequenceCommand : std::uint8_t {
+  Stop = 0, Play = 1, Builtin = 2, Pause = 3, Resume = 4
+};
 
 constexpr std::uint8_t kBuiltinSongOdeToJoy = 1;
 
