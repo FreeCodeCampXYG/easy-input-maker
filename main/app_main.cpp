@@ -27,6 +27,7 @@
 #include "keyboard/config_status.h"
 #include "keyboard/config_state.h"
 #include "keyboard/cold_boot_feedback.h"
+#include "keyboard/encoder_function_ring.h"
 #include "keyboard/encoder_press_gesture.h"
 #include "keyboard/held_keyboard_state.h"
 #include "keyboard/hid_report_queue.h"
@@ -204,6 +205,15 @@ struct AppContext {
   bool speaker_power_hold_active = false;
 #endif
   ai_keyboard::EncoderScrollAxis encoder_scroll_axis = ai_keyboard::EncoderScrollAxis::Vertical;
+  // 功能槽位采用固定环形索引；新增功能只需追加槽位和应用分支，切换逻辑保持不变。
+  ai_keyboard::EncoderFunctionRing encoder_function_ring{
+#if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
+    defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
+      2U
+#else
+      1U
+#endif
+  };
   std::uint16_t battery_mv = 0;
   std::uint16_t battery_raw_mv = 0;
   std::uint8_t battery_percent = 0;
@@ -1053,6 +1063,7 @@ void handle_ptt_keyboard_audio(AppContext* app,
 }
 
 void toggle_encoder_scroll_axis(AppContext* app);
+void cycle_encoder_function(AppContext* app);
 bool flush_encoder_text_selection(AppContext* app);
 
 bool encoder_text_selection_owns_keyboard_transport(
@@ -1440,6 +1451,10 @@ void dispatch_firmware_event(AppContext* app,
 
 void dispatch_encoder_press_click(AppContext* app) {
   const auto& action = app->config_state.keymap().action_for(ai_keyboard::InputId::EncoderPress);
+  if (action.kind == ai_keyboard::ActionKind::FunctionCycle) {
+    cycle_encoder_function(app);
+    return;
+  }
   if (action.kind == ai_keyboard::ActionKind::ScrollAxisToggle) {
     toggle_encoder_scroll_axis(app);
     return;
@@ -2229,6 +2244,45 @@ void toggle_encoder_scroll_axis(AppContext* app) {
            "ENC_%s axis=%s",
            encoder_rotation_mode_name(app->config_state.encoder_scroll().mode),
            encoder_scroll_axis_name(app->encoder_scroll_axis));
+}
+
+void cycle_encoder_function(AppContext* app) {
+  if (app == nullptr) {
+    return;
+  }
+  const auto slot = app->encoder_function_ring.advance();
+#if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
+    defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
+  // 槽位 0 保持键盘输入，槽位 1 进入音乐输入；先切换输入门闸，
+  // 再请求唯一 I2S owner，避免同一次按键同时走两条功能路径。
+  if (slot == 0U) {
+    if (app->music_mode_enabled && app->speaker.music_active()) {
+      app->speaker.cancel_active();
+    }
+    app->music_mode_enabled = false;
+    ESP_LOGI(kTag, "ENC_FUNCTION slot=0 keyboard");
+    return;
+  }
+  if (!app->speaker.ready() &&
+      (!app->speaker.shutdown_complete() ||
+       app->speaker.begin(app->platform_task, &app->audio_io_arbiter) != ESP_OK)) {
+    app->encoder_function_ring.set_current(0U);
+    ESP_LOGW(kTag, "ENC_FUNCTION slot=%u rejected speaker_unavailable",
+             static_cast<unsigned>(slot));
+    return;
+  }
+  if (!app->speaker.request_music()) {
+    app->encoder_function_ring.set_current(0U);
+    ESP_LOGW(kTag, "ENC_FUNCTION slot=%u rejected music_unavailable",
+             static_cast<unsigned>(slot));
+    return;
+  }
+  app->music_mode_enabled = true;
+  ESP_LOGI(kTag, "ENC_FUNCTION slot=1 music");
+#else
+  (void)slot;
+  toggle_encoder_scroll_axis(app);
+#endif
 }
 
 void sync_encoder_scroll_axis(AppContext* app) {
@@ -3083,6 +3137,7 @@ bool apply_music_config(AppContext* app,
   }
   // 音乐开关先于输入分发更新，避免配置关闭后旧按键路径仍被钢琴拦截。
   app->music_mode_enabled = config.enabled;
+  app->encoder_function_ring.set_current(config.enabled ? 1U : 0U);
   if (config.enabled && config.metronome_enabled) {
     if (!app->speaker.ready() &&
         (!app->speaker.shutdown_complete() ||

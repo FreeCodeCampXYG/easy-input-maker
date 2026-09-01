@@ -46,6 +46,7 @@ enum class ActionKind {
   Copy,
   Paste,
   Undo,
+  FunctionCycle,
 };
 
 enum class HostPlatform {

@@ -531,6 +531,9 @@ std::optional<ActionKind> named_action_kind(const std::string& action) {
   if (action == "scroll_axis_toggle") {
     return ActionKind::ScrollAxisToggle;
   }
+  if (action == "function_cycle") {
+    return ActionKind::FunctionCycle;
+  }
   if (action == "text_caret_select" || action == "mouse_drag_select") {
     return ActionKind::TextCaretSelect;
   }

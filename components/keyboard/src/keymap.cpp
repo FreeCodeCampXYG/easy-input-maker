@@ -37,7 +37,7 @@ Keymap DefaultKeymap() {
   actions[index_of(InputId::Key8)] = {ActionKind::Undo, ""};
   actions[index_of(InputId::EncoderLeft)] = {ActionKind::Disabled, ""};
   actions[index_of(InputId::EncoderRight)] = {ActionKind::Disabled, ""};
-  actions[index_of(InputId::EncoderPress)] = {ActionKind::ScrollAxisToggle, ""};
+  actions[index_of(InputId::EncoderPress)] = {ActionKind::FunctionCycle, ""};
   return Keymap(actions);
 }
 
@@ -95,6 +95,7 @@ FirmwareEvent event_for_action(const Action& action,
       }
       return {FirmwareEventKind::HostAction, action.hotkey};
     case ActionKind::ScrollAxisToggle:
+    case ActionKind::FunctionCycle:
     case ActionKind::TextCaretSelect:
       return {};
     case ActionKind::Disabled:

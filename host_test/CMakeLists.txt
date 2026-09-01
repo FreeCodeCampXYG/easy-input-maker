@@ -110,6 +110,7 @@ add_keyboard_host_test(config_status_tests)
 add_keyboard_host_test(debounce_tests)
 add_keyboard_host_test(diagnostic_command_tests)
 add_keyboard_host_test(encoder_tests)
+add_keyboard_host_test(encoder_function_ring_tests)
 add_keyboard_host_test(encoder_press_gesture_tests)
 add_keyboard_host_test(firmware_source_contract_tests)
 target_compile_definitions(
