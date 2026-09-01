@@ -41,6 +41,8 @@ class SpeakerOutput {
   // Music stays inside the sole speaker owner. Input only publishes compact
   // note edges; the I2S worker consumes them before rendering each PCM frame.
   bool request_music();
+  // 停止当前音乐会话，复用唯一 I2S owner 的取消路径，避免切换时残留长音。
+  void stop_music();
   bool set_music_config(const ai_keyboard::MusicConfig& config);
   bool set_music_sequence(const ai_keyboard::MusicSequence& sequence);
   bool queue_music_note(std::size_t key_index, bool pressed);

@@ -2257,7 +2257,7 @@ void cycle_encoder_function(AppContext* app) {
   // 再请求唯一 I2S owner，避免同一次按键同时走两条功能路径。
   if (slot == 0U) {
     if (app->music_mode_enabled && app->speaker.music_active()) {
-      app->speaker.cancel_active();
+      app->speaker.stop_music();
     }
     app->music_mode_enabled = false;
     ESP_LOGI(kTag, "ENC_FUNCTION slot=0 keyboard");

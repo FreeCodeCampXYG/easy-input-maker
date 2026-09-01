@@ -514,6 +514,14 @@ bool SpeakerOutput::request_music() {
   return true;
 }
 
+void SpeakerOutput::stop_music() {
+  if (!music_active_.load(std::memory_order_acquire)) {
+    return;
+  }
+  music_active_.store(false, std::memory_order_release);
+  cancel_active();
+}
+
 bool SpeakerOutput::set_music_config(const ai_keyboard::MusicConfig& config) {
   if (!ai_keyboard::validate_music_config(config)) {
     return false;
