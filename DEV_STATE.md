@@ -1,5 +1,12 @@
 # EasyInput Maker 开发状态
 
+## 2026-09-02：USB 描述符与固定资源审计
+
+- 修复 Windows Code 10 的直接原因：键盘 LED Output 恢复 `5+3=8 bit` 对齐；将 `SEQ1/0x17` 的 63 字节 Feature/Output 移入 Vendor Collection，并补齐 `0x13` 的 16 字节 Output 声明，保持与回调合同一致。
+- BLE 配置 GATT 写回调改用 63 字节定长数组，拒绝超长帧，消除远端长度触发的堆分配与碎片化路径；删除一条 `uint8_t > 255` 永远为假的无效校验。
+- 宿主 CTest 65/65、`git diff --check`、ESP-IDF 5.5.5 / ESP32-S3 全量构建均通过；应用镜像 `0x194190`，最小 App 分区余量 47%。未烧录、未验证 Windows 重新枚举或 Studio 写入。
+- 强度复核：P1 为 0；待验证 P2 为 TinyUSB 鼠标宏未展开进位账本，以及音频采集 4 KiB 任务栈需要实板长时 high-water 证据。
+
 ## 2026-09-02：修复外部诊断状态请求报告类型
 
 - 根因：状态请求 `0x13` 在 USB 描述符中声明为 Feature Report，但现有 Flasher Go HID 库只能发送 Output Report，导致请求无法进入 Maker 回调。
@@ -19,6 +26,7 @@
 - 将八个实体键作为离线钢琴接入既有 `SpeakerOutput`，旋钮调节音量，不新建并行 I2S 所有者。
 - 实现旋钮短按的环形功能切换，替代高频桌面端切换；当前槽位为键盘/音乐。
 - 修复已发布版本中旧 NVS 配置导致旋钮短按不进入环形切换的问题。
+- 调整交互：短按恢复原有旋钮动作；800 ms—3 s 中长按松开切换功能；3 s 长按继续进入配置模式。
 - 功能切换反馈使用 5 颗 WS2812 的低位位图：槽位编号从 1 开始，bit0 对应第一颗灯；例如 1=00001、2=00010、3=00011，环回仍由 `EncoderFunctionRing` 保证。
 - 本轮将环形功能扩展为键盘/音乐/鼓机三槽；鼓机 KEY1—KEY4 分别合成 Kick、Snare、Hi-hat、Click，继续复用 GPIO8 共享电源和唯一 I2S owner。
 - `SEQ1` 增加 Pause/Resume 控制，播放或内置曲目接收时保存 `song_v1`；启动仅校验并恢复曲目到 RAM，不自动发声。

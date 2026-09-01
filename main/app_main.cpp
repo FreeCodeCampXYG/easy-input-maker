@@ -90,6 +90,7 @@ constexpr std::uint32_t kDeepSleepAfterMs =
 constexpr std::uint32_t kAwakePowerSampleIntervalMs = 300000;
 constexpr std::uint32_t kAwakeHeartbeatLogIntervalMs = 600000;
 constexpr std::uint32_t kEncoderConfigModeHoldMs = 3000;
+constexpr std::uint32_t kEncoderFunctionCycleHoldMs = 800;
 constexpr std::uint32_t kPlatformSelectionModeTimeoutMs = 10000;
 constexpr int kEncoderScrollMaxReportMagnitude = 96;
 constexpr int kEncoderWheelMaxChunkMagnitude = 24;
@@ -1066,6 +1067,7 @@ void handle_ptt_keyboard_audio(AppContext* app,
 
 void toggle_encoder_scroll_axis(AppContext* app);
 void cycle_encoder_function(AppContext* app);
+void enter_encoder_config_mode(AppContext* app, std::uint32_t effect_now_ms);
 bool flush_encoder_text_selection(AppContext* app);
 
 bool encoder_text_selection_owns_keyboard_transport(
@@ -1453,12 +1455,11 @@ void dispatch_firmware_event(AppContext* app,
 
 void dispatch_encoder_press_click(AppContext* app) {
   const auto& action = app->config_state.keymap().action_for(ai_keyboard::InputId::EncoderPress);
-  // 旧版已保存的 settings/scroll_axis_toggle 也迁移到实体旋钮循环，
-  // 否则 DefaultKeymap 的新动作永远不会覆盖 NVS 中的旧按键映射。
+  // 功能环只由中长按进入。历史 function_cycle 是此前默认短按写入的
+  // 兼容值，回退为旧的滚动轴切换，避免更新后吞掉用户的短按动作。
   if (action.kind == ai_keyboard::ActionKind::FunctionCycle ||
-      action.kind == ai_keyboard::ActionKind::Settings ||
       action.kind == ai_keyboard::ActionKind::ScrollAxisToggle) {
-    cycle_encoder_function(app);
+    toggle_encoder_scroll_axis(app);
     return;
   }
   if (action.kind == ai_keyboard::ActionKind::ScrollAxisToggle) {
@@ -2325,6 +2326,13 @@ void check_encoder_press_config_hold(AppContext* app,
     return;
   }
 
+  enter_encoder_config_mode(app, effect_now_ms);
+}
+
+void enter_encoder_config_mode(AppContext* app, std::uint32_t effect_now_ms) {
+  if (app == nullptr) {
+    return;
+  }
   if (app->encoder_text_selection_active ||
       !app->pending_encoder_text_selection_steps.empty()) {
     app->encoder_text_selection_active = false;
@@ -3031,9 +3039,16 @@ bool handle_input_event(const easy_input::InputEvent& event, void* context) {
       return true;
     }
 
-    const auto release = app->encoder_press_gesture.release();
+    const auto release = app->encoder_press_gesture.release(
+        event.timestamp_ms,
+        kEncoderFunctionCycleHoldMs,
+        kEncoderConfigModeHoldMs);
     if (release.dispatch_click) {
       dispatch_encoder_press_click(app);
+    } else if (release.dispatch_function_cycle) {
+      cycle_encoder_function(app);
+    } else if (release.open_config_mode) {
+      enter_encoder_config_mode(app, now);
     } else if (release.ignored_after_config) {
       ESP_LOGI(kTag, "ENC_PRESS release ignored after config mode long press");
     }

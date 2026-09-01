@@ -12,6 +12,8 @@ enum class EncoderPressGesturePhase : std::uint8_t {
 
 struct EncoderPressReleaseResult {
   bool dispatch_click = false;
+  bool dispatch_function_cycle = false;
+  bool open_config_mode = false;
   bool ignored_after_config = false;
 };
 
@@ -28,7 +30,10 @@ class EncoderPressGesture {
                              std::uint32_t hold_ms,
                              bool physically_pressed);
 
-  EncoderPressReleaseResult release();
+  // 在松开时按实际按住时长分类，避免中长按抢走原有短按动作。
+  EncoderPressReleaseResult release(std::uint32_t now_ms,
+                                    std::uint32_t function_cycle_hold_ms,
+                                    std::uint32_t config_hold_ms);
   void reset();
 
   EncoderPressGesturePhase phase() const;

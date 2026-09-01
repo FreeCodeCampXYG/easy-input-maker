@@ -3576,6 +3576,99 @@ void config_status_publication_uses_shared_bounded_ble_encoders() {
   assert(final_wire.find("std::snprintf") == std::string::npos);
 }
 
+void usb_hid_descriptor_keeps_all_output_reports_byte_aligned() {
+  const auto usb = read_source("main/platform/usb_hid.cpp");
+  const auto descriptor = section(
+      usb,
+      "const std::uint8_t kHidReportDescriptor[] = {",
+      "const std::uint8_t kHidConfigurationDescriptor[] = {");
+  std::array<std::uint8_t, 512> bytes{};
+  std::size_t byte_count = 0;
+  std::istringstream lines(descriptor);
+  for (std::string line; std::getline(lines, line);) {
+    const auto comment = line.find("//");
+    if (comment != std::string::npos) {
+      line.resize(comment);
+    }
+    for (std::size_t offset = 0; offset + 3 < line.size();) {
+      offset = line.find("0x", offset);
+      if (offset == std::string::npos || offset + 3 >= line.size()) {
+        break;
+      }
+      const auto high = line[offset + 2];
+      const auto low = line[offset + 3];
+      const auto nibble = [](char value) -> int {
+        if (value >= '0' && value <= '9') return value - '0';
+        if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+        if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+        return -1;
+      };
+      const auto high_value = nibble(high);
+      const auto low_value = nibble(low);
+      if (high_value >= 0 && low_value >= 0) {
+        assert(byte_count < bytes.size());
+        bytes[byte_count++] = static_cast<std::uint8_t>(
+            (high_value << 4U) | low_value);
+        offset += 4;
+      } else {
+        offset += 2;
+      }
+    }
+  }
+
+  std::array<std::array<std::uint32_t, 3>, 256> report_bits{};
+  std::uint8_t report_id = 0;
+  std::uint8_t report_size = 0;
+  std::uint8_t report_count = 0;
+  for (std::size_t offset = 0; offset < byte_count;) {
+    const auto item = bytes[offset++];
+    const auto size_code = item & 0x03U;
+    const auto payload_len = size_code == 3U ? 4U : size_code;
+    assert(offset + payload_len <= byte_count);
+    const auto payload = payload_len == 0U ? 0U : bytes[offset];
+    if (item == 0x85U) {
+      report_id = static_cast<std::uint8_t>(payload);
+    } else if (item == 0x75U) {
+      report_size = static_cast<std::uint8_t>(payload);
+    } else if (item == 0x95U) {
+      report_count = static_cast<std::uint8_t>(payload);
+    } else if (item == 0x81U || item == 0x91U || item == 0xB1U) {
+      const std::size_t direction = item == 0x81U ? 0U : item == 0x91U ? 1U : 2U;
+      report_bits[report_id][direction] +=
+          static_cast<std::uint32_t>(report_size) * report_count;
+    }
+    offset += payload_len;
+  }
+
+  for (const auto& directions : report_bits) {
+    for (const auto bits : directions) {
+      assert(bits % 8U == 0U);
+    }
+  }
+  assert(report_bits[1U][1U] == 8U);
+  assert(report_bits[0x16U][2U] == 63U * 8U);
+  assert(report_bits[0x16U][1U] == 63U * 8U);
+  assert(report_bits[0x17U][2U] == 63U * 8U);
+  assert(report_bits[0x17U][1U] == 63U * 8U);
+  assert(report_bits[0x13U][2U] == 16U * 8U);
+  assert(report_bits[0x13U][1U] == 16U * 8U);
+}
+
+void ble_control_write_uses_a_bounded_stack_frame() {
+  const auto ble = read_source("main/platform/ble_hid.cpp");
+  const auto write_path = section(
+      ble,
+      "if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR)",
+      "return BLE_ATT_ERR_UNLIKELY;");
+  assert(write_path.find("kControlWriteMaxLen") != std::string::npos);
+  assert(write_path.find("std::array<std::uint8_t, kControlWriteMaxLen>") !=
+         std::string::npos);
+  assert(write_path.find("std::vector<std::uint8_t> data") ==
+         std::string::npos);
+  assert(write_path.find("static_cast<std::size_t>(len) > kControlWriteMaxLen") !=
+         std::string::npos);
+}
+
 }  // namespace
 
 int main() {
@@ -3613,5 +3706,7 @@ int main() {
   runtime_logs_do_not_emit_user_or_device_identifiers();
   host_action_platform_adapters_reuse_shared_encoding();
   config_status_publication_uses_shared_bounded_ble_encoders();
+  usb_hid_descriptor_keeps_all_output_reports_byte_aligned();
+  ble_control_write_uses_a_bounded_stack_frame();
   return 0;
 }

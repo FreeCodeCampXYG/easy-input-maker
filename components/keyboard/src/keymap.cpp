@@ -37,7 +37,7 @@ Keymap DefaultKeymap() {
   actions[index_of(InputId::Key8)] = {ActionKind::Undo, ""};
   actions[index_of(InputId::EncoderLeft)] = {ActionKind::Disabled, ""};
   actions[index_of(InputId::EncoderRight)] = {ActionKind::Disabled, ""};
-  actions[index_of(InputId::EncoderPress)] = {ActionKind::FunctionCycle, ""};
+  actions[index_of(InputId::EncoderPress)] = {ActionKind::ScrollAxisToggle, ""};
   return Keymap(actions);
 }
 

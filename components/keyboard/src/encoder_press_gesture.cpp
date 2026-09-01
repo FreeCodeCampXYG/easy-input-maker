@@ -20,12 +20,23 @@ bool EncoderPressGesture::trigger_config_if_due(
   return true;
 }
 
-EncoderPressReleaseResult EncoderPressGesture::release() {
+EncoderPressReleaseResult EncoderPressGesture::release(
+    std::uint32_t now_ms,
+    std::uint32_t function_cycle_hold_ms,
+    std::uint32_t config_hold_ms) {
   EncoderPressReleaseResult result;
   switch (phase_) {
-    case EncoderPressGesturePhase::Pending:
-      result.dispatch_click = true;
+    case EncoderPressGesturePhase::Pending: {
+      const auto held_ms = static_cast<std::uint32_t>(now_ms - down_ms_);
+      if (held_ms >= config_hold_ms) {
+        result.open_config_mode = true;
+      } else if (held_ms >= function_cycle_hold_ms) {
+        result.dispatch_function_cycle = true;
+      } else {
+        result.dispatch_click = true;
+      }
       break;
+    }
     case EncoderPressGesturePhase::ConfigTriggered:
       result.ignored_after_config = true;
       break;

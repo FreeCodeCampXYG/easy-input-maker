@@ -8,7 +8,6 @@
 #include <cstring>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "esp_bt.h"
 #include "easy_input_esp_hid_owner.h"
@@ -17,6 +16,7 @@
 #include "esp_timer.h"
 #include "keyboard/ble_persistence_policy.h"
 #include "keyboard/ble_status_wire.h"
+#include "keyboard/config_receiver.h"
 #include "keyboard/config_status.h"
 #include "keyboard/host_action_protocol.h"
 #include "keyboard/hid_keycode.h"
@@ -3060,16 +3060,20 @@ int BleHidTransport::handle_config_access(std::uint16_t conn_handle,
       }
 
       const int len = OS_MBUF_PKTLEN(ctxt->om);
-      if (len <= 0) {
+      constexpr std::size_t kControlWriteMaxLen =
+          ai_keyboard::kConfigHeaderLen + ai_keyboard::kConfigMaxChunkData;
+      if (len <= 0 || static_cast<std::size_t>(len) > kControlWriteMaxLen) {
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
       }
-      std::vector<std::uint8_t> data(static_cast<std::size_t>(len));
+      // 控制写入协议的最大帧长固定为 63 字节；使用栈上定长缓冲，
+      // 避免远端可控长度在 NimBLE 回调中反复分配并造成堆碎片。
+      std::array<std::uint8_t, kControlWriteMaxLen> data{};
       const int rc = os_mbuf_copydata(ctxt->om, 0, len, data.data());
       if (rc != 0) {
         return BLE_ATT_ERR_UNLIKELY;
       }
       if (attr_handle == s_agent_status_write_handle) {
-        if (!receive_agent_status_report(data.data(), data.size())) {
+        if (!receive_agent_status_report(data.data(), static_cast<std::size_t>(len))) {
           return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
         }
       } else {
@@ -3078,7 +3082,7 @@ int BleHidTransport::handle_config_access(std::uint16_t conn_handle,
           origin_owner = {};
         }
         receive_config_report(
-            data.data(), data.size(), origin_owner, conn_handle);
+            data.data(), static_cast<std::size_t>(len), origin_owner, conn_handle);
       }
       return 0;
     }

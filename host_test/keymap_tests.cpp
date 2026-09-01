@@ -24,7 +24,7 @@ void default_mapping_covers_all_keys_and_encoder() {
   assert(keymap.action_for(InputId::Key8).kind == ActionKind::Undo);
   assert(keymap.action_for(InputId::EncoderLeft).kind == ActionKind::Disabled);
   assert(keymap.action_for(InputId::EncoderRight).kind == ActionKind::Disabled);
-  assert(keymap.action_for(InputId::EncoderPress).kind == ActionKind::FunctionCycle);
+  assert(keymap.action_for(InputId::EncoderPress).kind == ActionKind::ScrollAxisToggle);
 }
 
 void voice_hold_actions_emit_press_and_release_events() {
