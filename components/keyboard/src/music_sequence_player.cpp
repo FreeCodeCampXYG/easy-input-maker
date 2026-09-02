@@ -27,7 +27,8 @@ bool MusicSequencePlayer::load(const MusicSequence& sequence) {
 void MusicSequencePlayer::stop(MusicSynth* synth) {
   if (synth != nullptr && event_index_ < sequence_.event_count &&
       sequence_.events[event_index_].degree != kMusicSequenceRest) {
-    synth->note_off(sequence_.events[event_index_].degree);
+    synth->note_off(sequence_.events[event_index_].degree,
+                    sequence_.events[event_index_].octave_offset);
   }
   playing_ = false;
   paused_ = false;
@@ -48,7 +49,7 @@ void MusicSequencePlayer::advance(std::size_t sample_count, MusicSynth* synth) {
       }
       const auto& event = sequence_.events[event_index_];
       if (event.degree != kMusicSequenceRest) {
-        synth->note_on(event.degree, event.velocity_percent);
+        synth->note_on(event.degree, event.velocity_percent, event.octave_offset);
       }
       const auto duration_num = frames_per_sixteenth_num * event.duration_sixteenths + frame_remainder_;
       event_frames_remaining_ = static_cast<std::uint32_t>(duration_num / frames_per_sixteenth_den);
@@ -60,7 +61,9 @@ void MusicSequencePlayer::advance(std::size_t sample_count, MusicSynth* synth) {
     remaining -= consumed;
     if (event_frames_remaining_ == 0U) {
       const auto& event = sequence_.events[event_index_];
-      if (event.degree != kMusicSequenceRest) synth->note_off(event.degree);
+      if (event.degree != kMusicSequenceRest) {
+        synth->note_off(event.degree, event.octave_offset);
+      }
       ++event_index_;
       if (event_index_ >= sequence_.event_count) {
         playing_ = false;

@@ -46,6 +46,7 @@ class SpeakerOutput {
   void stop_music();
   bool set_music_config(const ai_keyboard::MusicConfig& config);
   bool set_music_sequence(const ai_keyboard::MusicSequence& sequence);
+  bool stop_music_sequence();
   bool queue_music_note(std::size_t key_index, bool pressed);
   bool queue_drum_hit(ai_keyboard::DrumVoice drum,
                       std::uint8_t velocity_percent = 100);

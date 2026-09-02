@@ -37,7 +37,7 @@ void builtin_ode_to_joy_is_compact_and_playable() {
       ai_keyboard::kBuiltinSongOdeToJoy);
   assert(sequence.has_value());
   assert(sequence->command == ai_keyboard::MusicSequenceCommand::Play);
-  assert(sequence->event_count == 98);
+  assert(sequence->event_count == 96);
   assert(sequence->event_count <= ai_keyboard::kMusicSequenceStorageEvents);
   assert(sequence->events[0].degree == 2);
   assert(sequence->events[12].duration_sixteenths == 6);
@@ -45,12 +45,20 @@ void builtin_ode_to_joy_is_compact_and_playable() {
   assert(sequence->events[15].degree == 2);
   assert(sequence->events[29].duration_sixteenths == 8);
   assert(sequence->events[30].degree == 1);
-  assert(sequence->events[47].degree == 2);
-  assert(sequence->events[97].duration_sixteenths == 8);
+  assert(sequence->events[46].degree == 4);
+  assert(sequence->events[46].octave_offset == -1);
+  assert(sequence->events[47].degree == 1);
+  assert(sequence->events[95].duration_sixteenths == 8);
   assert(sequence->events[0].velocity_percent == 100);
   assert(sequence->events[1].velocity_percent == 85);
   assert(sequence->events[2].velocity_percent == 85);
   assert(!ai_keyboard::builtin_music_sequence(99).has_value());
+
+  auto external = *sequence;
+  external.event_count = 1;
+  external.events[0].octave_offset = -1;
+  std::array<std::uint8_t, ai_keyboard::kMusicSequencePayloadLen> payload{};
+  assert(!ai_keyboard::encode_music_sequence(external, &payload));
 }
 
 void pause_and_resume_keep_the_loaded_song() {

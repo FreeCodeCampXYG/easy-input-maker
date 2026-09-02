@@ -26,6 +26,8 @@ struct MusicSequenceEvent {
   std::uint8_t duration_sixteenths = 4;
   // 0 表示沿用旧版 wire 的满音量；有效范围 1—100。
   std::uint8_t velocity_percent = 100;
+  // 仅内置曲目使用八度偏移；外部 SEQ1 固定为 0，保持既有 wire 兼容。
+  std::int8_t octave_offset = 0;
 };
 
 struct MusicSequence {

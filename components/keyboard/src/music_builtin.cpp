@@ -15,12 +15,12 @@ constexpr std::array<MusicSequenceEvent, 15> kPhraseB{{
     {1, 6, 0}, {0, 2, 0}, {0, 8, 0}}};
 constexpr std::array<MusicSequenceEvent, 18> kPhraseC{{
     {1, 4, 0}, {1, 4, 0}, {2, 4, 0}, {0, 4, 0},
-    {1, 4, 0}, {2, 2, 0}, {3, 2, 0}, {2, 4, 0}, {0, 4, 0},
-    {1, 4, 0}, {2, 2, 0}, {3, 2, 0}, {2, 4, 0}, {1, 4, 0},
-    {0, 4, 0}, {1, 4, 0}, {4, 4, 0}, {2, 4, 0}}};
-constexpr std::array<MusicSequenceEvent, 16> kPhraseD{{
+    {1, 4, 0}, {2, 4, 0}, {3, 4, 0}, {2, 4, 0}, {0, 4, 0},
+    {1, 4, 0}, {2, 4, 0}, {3, 4, 0}, {2, 4, 0}, {1, 4, 0},
+    {0, 4, 0}, {1, 4, 0}, {4, 4, 0, -1}, {2, 4, 0}}};
+constexpr std::array<MusicSequenceEvent, 15> kPhraseD{{
     {2, 4, 0}, {2, 4, 0}, {3, 4, 0}, {4, 4, 0},
-    {4, 4, 0}, {3, 4, 0}, {2, 4, 0}, {3, 2, 0}, {1, 2, 0},
+    {4, 4, 0}, {3, 4, 0}, {2, 4, 0}, {1, 4, 0},
     {0, 4, 0}, {0, 4, 0}, {1, 4, 0}, {2, 4, 0},
     {1, 6, 0}, {0, 2, 0}, {0, 8, 0}}};
 constexpr std::size_t kBuiltinEventCount =
@@ -56,7 +56,8 @@ std::optional<MusicSequence> builtin_music_sequence(std::uint8_t builtin_id) {
         beat_position == 0U ? 100U : (beat_position % 4U == 0U ? 85U : 70U));
     sequence.events[index] = {events[index].degree,
                               events[index].duration_sixteenths,
-                              velocity};
+                              velocity,
+                              events[index].octave_offset};
     sixteenth_cursor = static_cast<std::uint16_t>(
         sixteenth_cursor + events[index].duration_sixteenths);
   }

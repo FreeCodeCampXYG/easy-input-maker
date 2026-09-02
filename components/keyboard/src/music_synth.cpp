@@ -91,11 +91,15 @@ bool MusicSynth::apply_config(const MusicConfig& config) {
 
 const MusicConfig& MusicSynth::config() const { return config_; }
 
-bool MusicSynth::note_on(std::size_t key_index, std::uint8_t velocity_percent) {
-  if (!config_.enabled || key_index >= kMusicKeyCount) return false;
+bool MusicSynth::note_on(std::size_t key_index,
+                         std::uint8_t velocity_percent,
+                         std::int8_t octave_offset) {
+  if (!config_.enabled || key_index >= kMusicKeyCount ||
+      octave_offset < -1 || octave_offset > 1) return false;
   Voice* selected = nullptr;
   for (auto& voice : voices_) {
-    if (voice.active && voice.key_index == key_index) {
+    if (voice.active && voice.key_index == key_index &&
+        voice.octave_offset == octave_offset) {
       selected = &voice;
       break;
     }
@@ -110,8 +114,14 @@ bool MusicSynth::note_on(std::size_t key_index, std::uint8_t velocity_percent) {
   *selected = {};
   selected->active = true;
   selected->key_index = key_index;
+  selected->octave_offset = octave_offset;
   selected->phase = old_phase;
   selected->increment = music_key_phase_increment(config_, key_index);
+  if (octave_offset < 0) {
+    selected->increment >>= static_cast<unsigned>(-octave_offset);
+  } else if (octave_offset > 0) {
+    selected->increment <<= static_cast<unsigned>(octave_offset);
+  }
   selected->timbre = config_.timbres[key_index];
   selected->velocity_q15 = static_cast<std::uint32_t>(
       std::min<std::uint8_t>(velocity_percent, 100U)) * 32767U / 100U;
@@ -119,10 +129,11 @@ bool MusicSynth::note_on(std::size_t key_index, std::uint8_t velocity_percent) {
   return selected->increment != 0;
 }
 
-bool MusicSynth::note_off(std::size_t key_index) {
+bool MusicSynth::note_off(std::size_t key_index, std::int8_t octave_offset) {
   bool changed = false;
   for (auto& voice : voices_) {
-    if (voice.active && voice.key_index == key_index) {
+    if (voice.active && voice.key_index == key_index &&
+        voice.octave_offset == octave_offset) {
       voice.envelope = Envelope::Release;
       changed = true;
     }

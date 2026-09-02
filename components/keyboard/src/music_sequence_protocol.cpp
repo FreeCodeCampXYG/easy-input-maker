@@ -29,7 +29,7 @@ bool encode_music_sequence(const MusicSequence& sequence,
   for (std::size_t index = 0; index < sequence.event_count; ++index) {
     const auto& event = sequence.events[index];
     if ((event.degree != kMusicSequenceRest && event.degree > 7) ||
-        event.duration_sixteenths == 0 ||
+        event.duration_sixteenths == 0 || event.octave_offset != 0 ||
         event.velocity_percent > 100) {
       return false;
     }

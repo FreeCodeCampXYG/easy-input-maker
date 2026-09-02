@@ -2957,11 +2957,13 @@ bool dispatch_music_key(AppContext* app,
     if (!app->speaker.request_music()) return false;
     switch (input) {
       case ai_keyboard::InputId::Key5:
-        return app->speaker.cycle_drum_beat();
+        return app->speaker.stop_music_sequence() &&
+               app->speaker.cycle_drum_beat();
       case ai_keyboard::InputId::Key6:
         return app->speaker.toggle_drum_pause();
       case ai_keyboard::InputId::Key7:
-        return app->speaker.toggle_drum_sequence();
+        return app->speaker.stop_music_sequence() &&
+               app->speaker.toggle_drum_sequence();
       case ai_keyboard::InputId::Key8: {
         const auto song = ai_keyboard::builtin_music_sequence(
             ai_keyboard::kBuiltinSongOdeToJoy);

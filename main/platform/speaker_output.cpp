@@ -515,12 +515,17 @@ bool SpeakerOutput::request_music() {
 }
 
 void SpeakerOutput::stop_music() {
-  if (!music_active_.load(std::memory_order_acquire)) {
-    return;
-  }
   music_active_.store(false, std::memory_order_release);
   music_sequence_active_.store(false, std::memory_order_release);
   music_sequence_paused_.store(false, std::memory_order_release);
+  // 切换到功能一必须撤销尚未被 worker 消费的曲目/控制命令，
+  // 否则下次重新申请音乐会话会把旧 K8 请求重新播放。
+  portENTER_CRITICAL(&music_mux_);
+  pending_music_sequence_ = {};
+  pending_music_sequence_ready_ = false;
+  music_command_head_ = 0U;
+  music_command_count_ = 0U;
+  portEXIT_CRITICAL(&music_mux_);
   cancel_active();
 }
 
@@ -536,6 +541,13 @@ bool SpeakerOutput::set_music_config(const ai_keyboard::MusicConfig& config) {
   return true;
 }
 
+bool SpeakerOutput::stop_music_sequence() {
+  if (!music_active()) return false;
+  ai_keyboard::MusicSequence sequence;
+  sequence.command = ai_keyboard::MusicSequenceCommand::Stop;
+  return set_music_sequence(sequence);
+}
+
 bool SpeakerOutput::set_music_sequence(const ai_keyboard::MusicSequence& sequence) {
   if (sequence.command == ai_keyboard::MusicSequenceCommand::Play &&
       (sequence.event_count == 0 || sequence.bpm < 20 || sequence.bpm > 300)) {
@@ -545,7 +557,9 @@ bool SpeakerOutput::set_music_sequence(const ai_keyboard::MusicSequence& sequenc
   pending_music_sequence_ = sequence;
   pending_music_sequence_ready_ = true;
   portEXIT_CRITICAL(&music_mux_);
-  music_reset_pending_.store(true, std::memory_order_release);
+  if (sequence.command == ai_keyboard::MusicSequenceCommand::Play) {
+    music_reset_pending_.store(true, std::memory_order_release);
+  }
   return true;
 }
 

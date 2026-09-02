@@ -38,8 +38,10 @@ class MusicSynth {
  public:
   bool apply_config(const MusicConfig& config);
   const MusicConfig& config() const;
-  bool note_on(std::size_t key_index, std::uint8_t velocity_percent = 100);
-  bool note_off(std::size_t key_index);
+  bool note_on(std::size_t key_index,
+               std::uint8_t velocity_percent = 100,
+               std::int8_t octave_offset = 0);
+  bool note_off(std::size_t key_index, std::int8_t octave_offset = 0);
   bool trigger_drum(DrumVoice drum, std::uint8_t velocity_percent = 100);
   void render(std::int16_t* samples, std::size_t sample_count);
   bool active() const;
@@ -52,6 +54,7 @@ class MusicSynth {
   struct Voice {
     bool active = false;
     std::size_t key_index = 0;
+    std::int8_t octave_offset = 0;
     std::uint32_t phase = 0;
     std::uint32_t increment = 0;
     std::uint32_t age = 0;
