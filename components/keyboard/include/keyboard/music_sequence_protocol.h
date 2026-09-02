@@ -11,6 +11,8 @@ constexpr std::uint8_t kMusicSequenceReportId = 0x17;
 constexpr std::uint8_t kMusicSequenceVersion = 1;
 constexpr std::size_t kMusicSequencePayloadLen = 63;
 constexpr std::size_t kMusicSequenceMaxEvents = 27;
+// 内置曲目不受 63 字节外部 wire 容量限制，但仍共享同一播放器和事件格式。
+constexpr std::size_t kMusicSequenceStorageEvents = 128;
 constexpr std::uint8_t kMusicSequenceRest = 0xFF;
 
 enum class MusicSequenceCommand : std::uint8_t {
@@ -30,7 +32,7 @@ struct MusicSequence {
   MusicSequenceCommand command = MusicSequenceCommand::Stop;
   std::uint8_t builtin_id = 0;
   std::uint16_t bpm = 120;
-  std::array<MusicSequenceEvent, kMusicSequenceMaxEvents> events{};
+  std::array<MusicSequenceEvent, kMusicSequenceStorageEvents> events{};
   std::uint8_t event_count = 0;
 };
 
