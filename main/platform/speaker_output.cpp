@@ -1092,6 +1092,12 @@ void SpeakerOutput::run() {
 #endif
     if (request_kind == RequestKind::Music) {
       music_active_.store(false, std::memory_order_release);
+      // 会话结束即曲目结束：自然播完、被取消或写失败统一清掉
+      // 播放/暂停发布并让播放器退回停止态，避免第三颗灯残留
+      // 亮态或下一个音乐会话从中途续播旧曲目。
+      music_sequence_active_.store(false, std::memory_order_release);
+      music_sequence_paused_.store(false, std::memory_order_release);
+      music_sequence_player_.stop(nullptr);
     }
     publish_completed(generation, result);
   }

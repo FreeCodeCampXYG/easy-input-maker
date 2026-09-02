@@ -2299,6 +2299,9 @@ void cycle_encoder_function(AppContext* app) {
   app->drum_mode_enabled = slot == 2U;
   if (!app->drum_mode_enabled) {
     app->speaker.stop_drum_loop();
+    // 离开鼓机槽时结束仍在播放/暂停的 K8 曲目，
+    // 避免旋律与第三颗灯的播放提示跟随槽位残留。
+    app->speaker.stop_music_sequence();
   }
   ESP_LOGI(kTag, "ENC_FUNCTION slot=%u %s", static_cast<unsigned>(slot),
            app->drum_mode_enabled ? "drum" : "music");
@@ -2960,6 +2963,11 @@ bool dispatch_music_key(AppContext* app,
         return app->speaker.stop_music_sequence() &&
                app->speaker.cycle_drum_beat();
       case ai_keyboard::InputId::Key6:
+        // K6 在 K8 曲目播放中是停止键：结束曲目并释放当前音，
+        // 让 K8 退回播放前状态；没有曲目时保留鼓机暂停/继续。
+        if (app->speaker.music_sequence_active()) {
+          return app->speaker.stop_music_sequence();
+        }
         return app->speaker.toggle_drum_pause();
       case ai_keyboard::InputId::Key7:
         return app->speaker.stop_music_sequence() &&
