@@ -224,7 +224,7 @@ void StatusLedStrip::show_function_slot(std::size_t slot_number) {
   for (std::size_t index = 0; index < leds_.size(); ++index) {
     if ((mask & (1U << index)) != 0U) {
       // 槽位常亮只承担定位，进一步压低亮度，避免长时间直视造成刺眼。
-      leds_[index] = {0, 5, 7};
+      leds_[index] = {0, 2, 3};
     }
   }
   if (ready()) {
@@ -610,7 +610,7 @@ void StatusLedStrip::render_idle_status() {
       function_slot_number_ == 0U ? 1U : function_slot_number_);
   for (std::size_t index = 0; index < leds_.size(); ++index) {
     if ((mask & (1U << index)) != 0U) {
-      leds_[index] = {0, 5, 7};
+      leds_[index] = {0, 2, 3};
     }
   }
   flush();

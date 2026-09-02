@@ -2258,6 +2258,9 @@ void cycle_encoder_function(AppContext* app) {
   if (app == nullptr) {
     return;
   }
+  // 槽位边界先清空旧键盘状态，避免第一槽遗留的 Host Action/HID 按键
+  // 在第二或第三槽建立后才被传输；后续输入只能由当前槽位重新发布。
+  release_keyboard_reports(app);
   const auto previous_slot = app->encoder_function_ring.current();
   const auto slot = app->encoder_function_ring.advance();
   // 环形索引内部从 0 开始，灯位协议从 1 开始；显示前转换，避免用户看到“全灭”而误判切换失败。
@@ -3106,7 +3109,12 @@ bool handle_input_event(const easy_input::InputEvent& event, void* context) {
 
 #if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
     defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
-  if (dispatch_music_key(app, event.input, event.phase)) {
+  if (app->music_mode_enabled) {
+    // 音乐/鼓机槽拥有实体键输入。即使 I2S 临时不可用，也不能回退到
+    // 第一槽 Keymap，否则一个失败的发声请求会意外触发电脑端 Host Action。
+    if (!dispatch_music_key(app, event.input, event.phase)) {
+      ESP_LOGW(kTag, "%s consumed: active music slot unavailable", name);
+    }
     return true;
   }
 #endif

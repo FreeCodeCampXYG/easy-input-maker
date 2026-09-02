@@ -3691,6 +3691,7 @@ void encoder_slot_switch_preserves_previous_slot_on_failure_and_led_idle() {
       "void cycle_encoder_function(AppContext* app) {",
       "void show_encoder_function_cycle_ready(AppContext* app)");
   assert(cycle.find("const auto previous_slot") != std::string::npos);
+  assert(cycle.find("release_keyboard_reports(app)") != std::string::npos);
   assert(cycle.find("set_current(previous_slot)") != std::string::npos);
   assert(cycle.find("show_function_slot(previous_slot + 1U)") != std::string::npos);
 
@@ -3702,6 +3703,23 @@ void encoder_slot_switch_preserves_previous_slot_on_failure_and_led_idle() {
       "void StatusLedStrip::render_idle_status()",
       "void StatusLedStrip::set_all(Rgb color)");
   assert(idle.find("function_slot_number_") != std::string::npos);
+}
+
+void active_music_slots_never_fall_back_to_host_actions() {
+  const auto app = read_source("main/app_main.cpp");
+  const auto input = section(
+      app,
+      "bool handle_input_event(const easy_input::InputEvent& event, void* context)",
+      "void load_stored_config(AppContext* app)");
+  const auto music_guard = input.find("if (app->music_mode_enabled)");
+  const auto keymap = input.find(
+      "const auto& action = app->config_state.keymap()", music_guard);
+  assert(music_guard != std::string::npos);
+  assert(keymap != std::string::npos);
+  assert(music_guard < keymap);
+  const auto guard = input.substr(music_guard, keymap - music_guard);
+  assert(guard.find("dispatch_music_key") != std::string::npos);
+  assert(guard.find("return true;") != std::string::npos);
 }
 
 }  // namespace
@@ -3745,5 +3763,6 @@ int main() {
   ble_control_write_uses_a_bounded_stack_frame();
   boot_music_restore_does_not_skip_default_function_slot();
   encoder_slot_switch_preserves_previous_slot_on_failure_and_led_idle();
+  active_music_slots_never_fall_back_to_host_actions();
   return 0;
 }
