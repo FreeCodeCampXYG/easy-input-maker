@@ -45,6 +45,15 @@ void builtin_ode_to_joy_is_compact_and_playable() {
   assert(sequence->events[15].degree == 2);
   assert(sequence->events[29].duration_sixteenths == 8);
   assert(sequence->events[30].degree == 1);
+  // 展开段第 2、3 小节的“3 4”是八分音符对（十六分拍数为 2）。
+  assert(sequence->events[35].degree == 2 &&
+         sequence->events[35].duration_sixteenths == 2);
+  assert(sequence->events[36].degree == 3 &&
+         sequence->events[36].duration_sixteenths == 2);
+  assert(sequence->events[40].degree == 2 &&
+         sequence->events[40].duration_sixteenths == 2);
+  assert(sequence->events[41].degree == 3 &&
+         sequence->events[41].duration_sixteenths == 2);
   assert(sequence->events[46].degree == 4);
   assert(sequence->events[46].octave_offset == -1);
   assert(sequence->events[47].degree == 2);
