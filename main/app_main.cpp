@@ -2962,6 +2962,16 @@ bool dispatch_music_key(AppContext* app,
         return app->speaker.toggle_drum_pause();
       case ai_keyboard::InputId::Key7:
         return app->speaker.toggle_drum_sequence();
+      case ai_keyboard::InputId::Key8: {
+        const auto song = ai_keyboard::builtin_music_sequence(
+            ai_keyboard::kBuiltinSongOdeToJoy);
+        if (!song || !app->speaker.set_music_sequence(*song)) {
+          return false;
+        }
+        // K8 的内置曲目走现有序列播放器；worker 下一帧先清掉鼓机声部，
+        // 再载入音符/时值，避免曲目起音与正在衰减的鼓声硬叠造成爆音。
+        return true;
+      }
       default:
         break;
     }
@@ -4122,6 +4132,12 @@ extern "C" void app_main(void) {
         app.platform_selection.update(platform_selection_now),
         platform_selection_now);
     sync_led_status(&app, millis());
+#if defined(EASY_INPUT_SPEAKER_DIAGNOSTIC) || \
+    defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
+    app.leds.show_music_playback(app.speaker.music_sequence_active(),
+                                 app.speaker.music_sequence_paused(),
+                                 millis());
+#endif
     sync_audio_power_hold(&app);
     app.leds.update(millis());
     if (app.cold_boot_feedback.state() ==

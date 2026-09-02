@@ -233,6 +233,18 @@ void StatusLedStrip::show_function_slot(std::size_t slot_number) {
   idle_rendered_ = true;
 }
 
+void StatusLedStrip::show_music_playback(bool active,
+                                         bool paused,
+                                         std::uint32_t now_ms) {
+  if (music_playback_active_ != active || music_playback_paused_ != paused) {
+    music_playback_active_ = active;
+    music_playback_paused_ = paused;
+    music_playback_phase_ = active && !paused;
+    music_playback_last_ms_ = now_ms;
+    idle_rendered_ = false;
+  }
+}
+
 void StatusLedStrip::clear() {
   cold_boot_sequence_.cancel();
   deferred_feedback_.clear();
@@ -522,6 +534,12 @@ void StatusLedStrip::update(std::uint32_t now_ms) {
   if (update_active_feedback(now_ms)) {
     return;
   }
+  if (music_playback_active_ && !music_playback_paused_ &&
+      now_ms - music_playback_last_ms_ >= 420U) {
+    music_playback_phase_ = !music_playback_phase_;
+    music_playback_last_ms_ = now_ms;
+    idle_rendered_ = false;
+  }
   if (!idle_rendered_) {
     render_background_status(now_ms);
     idle_rendered_ = true;
@@ -558,6 +576,9 @@ bool StatusLedStrip::next_update_deadline_ms(
     }
   }
   add(agent_status_active_, agent_status_expires_ms_);
+  if (music_playback_active_ && !music_playback_paused_) {
+    add(true, music_playback_last_ms_ + 420U);
+  }
   if (!idle_rendered_ && !active_feedback_.active &&
       !cold_boot_sequence_.active()) {
     add(true, now_ms);
@@ -611,6 +632,16 @@ void StatusLedStrip::render_idle_status() {
   for (std::size_t index = 0; index < leds_.size(); ++index) {
     if ((mask & (1U << index)) != 0U) {
       leds_[index] = {0, 2, 3};
+    }
+  }
+  if (music_playback_active_) {
+    // 播放提示只用第三颗灯的低亮度慢闪，避免长时间直视造成刺眼。
+    if (leds_.size() > 2U) {
+      if (music_playback_paused_) {
+        leds_[2] = {0, 1, 1};
+      } else if (music_playback_phase_) {
+        leds_[2] = {0, 3, 4};
+      }
     }
   }
   flush();

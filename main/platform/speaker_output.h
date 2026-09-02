@@ -57,6 +57,8 @@ class SpeakerOutput {
   std::uint8_t adjust_music_volume(int delta_percent);
   std::uint8_t music_volume_percent() const;
   bool music_active() const;
+  bool music_sequence_active() const;
+  bool music_sequence_paused() const;
 
 #if defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
   // Starts one already-resolved, bank-pinned asset. The caller retains and
@@ -212,6 +214,8 @@ class SpeakerOutput {
   std::atomic<bool> music_resync_pending_{false};
   std::atomic<bool> music_reset_pending_{false};
   std::atomic<bool> music_active_{false};
+  std::atomic<bool> music_sequence_active_{false};
+  std::atomic<bool> music_sequence_paused_{false};
   std::atomic<std::uint8_t> music_volume_percent_{65};
   portMUX_TYPE music_mux_ = portMUX_INITIALIZER_UNLOCKED;
 #if defined(EASY_INPUT_SPEAKER_OPUS_DIAGNOSTIC)

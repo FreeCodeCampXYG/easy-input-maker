@@ -45,6 +45,7 @@ class StatusLedStrip {
   void show_pixel(std::size_t index, Rgb color);
   // 用五颗灯的低位位图显示功能槽位：槽位从 1 开始，bit0 对应第一颗灯。
   void show_function_slot(std::size_t slot_number);
+  void show_music_playback(bool active, bool paused, std::uint32_t now_ms);
   void set_agent_status(const ai_keyboard::AgentStatusCommand& command,
                         std::uint32_t now_ms);
   void show_scroll_event(std::int8_t vertical,
@@ -97,6 +98,10 @@ class StatusLedStrip {
   bool agent_status_rendered_ = false;
   bool idle_rendered_ = false;
   std::size_t function_slot_number_ = 1U;
+  bool music_playback_active_ = false;
+  bool music_playback_paused_ = false;
+  bool music_playback_phase_ = false;
+  std::uint32_t music_playback_last_ms_ = 0;
 };
 
 }  // namespace easy_input

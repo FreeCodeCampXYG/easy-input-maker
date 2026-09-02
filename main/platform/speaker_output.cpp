@@ -519,6 +519,8 @@ void SpeakerOutput::stop_music() {
     return;
   }
   music_active_.store(false, std::memory_order_release);
+  music_sequence_active_.store(false, std::memory_order_release);
+  music_sequence_paused_.store(false, std::memory_order_release);
   cancel_active();
 }
 
@@ -690,6 +692,14 @@ std::uint8_t SpeakerOutput::music_volume_percent() const {
 
 bool SpeakerOutput::music_active() const {
   return music_active_.load(std::memory_order_acquire);
+}
+
+bool SpeakerOutput::music_sequence_active() const {
+  return music_sequence_active_.load(std::memory_order_acquire);
+}
+
+bool SpeakerOutput::music_sequence_paused() const {
+  return music_sequence_paused_.load(std::memory_order_acquire);
 }
 
 #if defined(EASY_INPUT_SPEAKER_ASSETS_PRODUCT)
@@ -1443,9 +1453,16 @@ SpeakerOutput::WorkerResult SpeakerOutput::play_sound(
 void SpeakerOutput::consume_music_commands() {
   if (music_reset_pending_.exchange(false, std::memory_order_acq_rel)) {
     ai_keyboard::MusicConfig config;
+    bool pending_song_play = false;
     portENTER_CRITICAL(&music_mux_);
     config = music_config_;
+    pending_song_play = pending_music_sequence_ready_ &&
+                        pending_music_sequence_.command ==
+                            ai_keyboard::MusicSequenceCommand::Play;
     portEXIT_CRITICAL(&music_mux_);
+    // 鼓机 K8 的内置曲目是一次性显式播放；临时打开合成器音符门闸，
+    // 不改写 music_v1 持久配置，曲目结束后的下一会话仍按原设置恢复。
+    if (pending_song_play) config.enabled = true;
     music_synth_ = {};
     music_synth_.apply_config(config);
     // 新会话不能继承已取消的鼓机循环，否则切回钢琴会在无人触发时继续打点。
@@ -1486,7 +1503,15 @@ void SpeakerOutput::consume_music_commands() {
         drum_sequencer_.toggle_sequential();
         break;
       case MusicCommand::Kind::ToggleDrumPause:
-        drum_sequencer_.toggle_pause();
+        if (music_sequence_player_.playing()) {
+          ai_keyboard::MusicSequence control;
+          control.command = music_sequence_player_.paused()
+                                ? ai_keyboard::MusicSequenceCommand::Resume
+                                : ai_keyboard::MusicSequenceCommand::Pause;
+          music_sequence_player_.load(control);
+        } else {
+          drum_sequencer_.toggle_pause();
+        }
         break;
       case MusicCommand::Kind::StopDrumLoop:
         drum_sequencer_.stop();
@@ -1546,12 +1571,16 @@ esp_err_t SpeakerOutput::play_music_frames(std::uint32_t generation,
     return ESP_ERR_INVALID_ARG;
   }
   while (!cancelled(generation)) {
-    consume_music_commands();
     consume_music_sequence();
+    consume_music_commands();
     if (const auto drum = drum_sequencer_.advance(frame_capacity)) {
       music_synth_.trigger_drum(*drum);
     }
     music_sequence_player_.advance(frame_capacity, &music_synth_);
+    music_sequence_active_.store(music_sequence_player_.playing(),
+                                 std::memory_order_release);
+    music_sequence_paused_.store(music_sequence_player_.paused(),
+                                  std::memory_order_release);
     music_synth_.render(frame, frame_capacity);
     const auto volume = music_volume_percent();
     for (std::size_t index = 0; index < frame_capacity; ++index) {
