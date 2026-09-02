@@ -47,7 +47,8 @@ void builtin_ode_to_joy_is_compact_and_playable() {
   assert(sequence->events[30].degree == 1);
   assert(sequence->events[46].degree == 4);
   assert(sequence->events[46].octave_offset == -1);
-  assert(sequence->events[47].degree == 1);
+  assert(sequence->events[47].degree == 2);
+  assert(sequence->events[48].degree == 2);
   assert(sequence->events[95].duration_sixteenths == 8);
   assert(sequence->events[0].velocity_percent == 100);
   assert(sequence->events[1].velocity_percent == 85);
