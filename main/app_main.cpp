@@ -2268,6 +2268,7 @@ void cycle_encoder_function(AppContext* app) {
   // 再请求唯一 I2S owner，避免同一次按键同时走两条功能路径。
   if (slot == 0U) {
     if (app->music_mode_enabled && app->speaker.music_active()) {
+      app->speaker.stop_drum_loop();
       app->speaker.stop_music();
     }
     app->music_mode_enabled = false;
@@ -2293,6 +2294,9 @@ void cycle_encoder_function(AppContext* app) {
   }
   app->music_mode_enabled = true;
   app->drum_mode_enabled = slot == 2U;
+  if (!app->drum_mode_enabled) {
+    app->speaker.stop_drum_loop();
+  }
   ESP_LOGI(kTag, "ENC_FUNCTION slot=%u %s", static_cast<unsigned>(slot),
            app->drum_mode_enabled ? "drum" : "music");
 #else
@@ -2942,6 +2946,22 @@ bool dispatch_music_key(AppContext* app,
                         ai_keyboard::InputPhase phase) {
   if (app != nullptr && app->drum_mode_enabled) {
     if (phase != ai_keyboard::InputPhase::Pressed) return true;
+    if (!app->speaker.ready() &&
+        (!app->speaker.shutdown_complete() ||
+         app->speaker.begin(app->platform_task, &app->audio_io_arbiter) != ESP_OK)) {
+      return false;
+    }
+    if (!app->speaker.request_music()) return false;
+    switch (input) {
+      case ai_keyboard::InputId::Key5:
+        return app->speaker.cycle_drum_beat();
+      case ai_keyboard::InputId::Key6:
+        return app->speaker.toggle_drum_pause();
+      case ai_keyboard::InputId::Key7:
+        return app->speaker.toggle_drum_sequence();
+      default:
+        break;
+    }
     ai_keyboard::DrumVoice drum = ai_keyboard::DrumVoice::Click;
     switch (input) {
       case ai_keyboard::InputId::Key1: drum = ai_keyboard::DrumVoice::Kick; break;
@@ -2950,12 +2970,6 @@ bool dispatch_music_key(AppContext* app,
       case ai_keyboard::InputId::Key4: drum = ai_keyboard::DrumVoice::Click; break;
       default: return true;
     }
-    if (!app->speaker.ready() &&
-        (!app->speaker.shutdown_complete() ||
-         app->speaker.begin(app->platform_task, &app->audio_io_arbiter) != ESP_OK)) {
-      return false;
-    }
-    if (!app->speaker.request_music()) return false;
     return app->speaker.queue_drum_hit(drum);
   }
   const auto key_index = ai_keyboard::music_key_index_for_input(input);
@@ -2984,6 +2998,11 @@ bool dispatch_music_volume(AppContext* app,
     return false;
   }
   constexpr int kMusicVolumePercentPerDetent = 5;
+  if (app->drum_mode_enabled) {
+    constexpr int kDrumTempoPerDetent = 5;
+    return app->speaker.adjust_drum_tempo(
+        event.encoder_step * kDrumTempoPerDetent);
+  }
   const auto volume = app->speaker.adjust_music_volume(
       event.encoder_step * kMusicVolumePercentPerDetent);
   ESP_LOGI(kTag, "music volume=%u%%", static_cast<unsigned>(volume));

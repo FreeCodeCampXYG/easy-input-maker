@@ -10,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "keyboard/audio_io_arbiter.h"
+#include "keyboard/drum_sequencer.h"
 #include "keyboard/music_synth.h"
 #include "keyboard/music_sequence_player.h"
 #include "keyboard/speaker_playback.h"
@@ -48,6 +49,11 @@ class SpeakerOutput {
   bool queue_music_note(std::size_t key_index, bool pressed);
   bool queue_drum_hit(ai_keyboard::DrumVoice drum,
                       std::uint8_t velocity_percent = 100);
+  bool cycle_drum_beat();
+  bool toggle_drum_sequence();
+  bool toggle_drum_pause();
+  bool stop_drum_loop();
+  bool adjust_drum_tempo(int delta_bpm);
   std::uint8_t adjust_music_volume(int delta_percent);
   std::uint8_t music_volume_percent() const;
   bool music_active() const;
@@ -170,14 +176,26 @@ class SpeakerOutput {
 
   ai_keyboard::SpeakerPlayback playback_;
   struct MusicCommand {
+    enum class Kind : std::uint8_t {
+      Note,
+      DrumHit,
+      CycleDrumBeat,
+      ToggleDrumSequence,
+      ToggleDrumPause,
+      StopDrumLoop,
+      AdjustDrumTempo,
+    };
+    Kind kind = Kind::Note;
     std::uint8_t key_index = 0;
     bool pressed = false;
     bool drum = false;
     ai_keyboard::DrumVoice drum_voice = ai_keyboard::DrumVoice::Click;
     std::uint8_t velocity_percent = 100;
+    int tempo_delta_bpm = 0;
   };
   static constexpr std::size_t kMusicCommandCapacity = 16;
   ai_keyboard::MusicSynth music_synth_;
+  ai_keyboard::DrumSequencer drum_sequencer_;
   ai_keyboard::MusicSequencePlayer music_sequence_player_;
   ai_keyboard::MusicSequence pending_music_sequence_{};
   bool pending_music_sequence_ready_ = false;

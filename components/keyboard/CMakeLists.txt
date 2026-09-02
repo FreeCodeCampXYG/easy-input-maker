@@ -17,6 +17,7 @@ idf_component_register(
     "src/config_status.cpp"
     "src/debounce.cpp"
     "src/diagnostic_command.cpp"
+    "src/drum_sequencer.cpp"
     "src/encoder.cpp"
     "src/encoder_press_gesture.cpp"
     "src/held_keyboard_state.cpp"

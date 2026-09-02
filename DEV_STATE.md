@@ -1,5 +1,11 @@
 # EasyInput Maker 开发状态
 
+## 2026-09-02：鼓机节拍、循环与速度控制
+
+- 鼓机槽位内新增独立 `DrumSequencer`：Key5 依次切换 4/4 节拍、3/4 节拍、关闭；Key7 开/关 Kick→Snare→Hi-hat→Click 顺序循环；Key6 暂停/继续当前循环；旋钮每格以 5 BPM 调速，范围限制为 20—300 BPM。
+- 循环时钟由唯一 PCM/I2S worker 按渲染帧推进，避免主任务计时抖动及与 GPIO8 共享电源、音频仲裁并发；离开鼓机或创建新音乐会话会清除循环，钢琴与键盘模式不消费这些控制。
+- 新增 `drum_sequencer_tests`；重新配置后宿主 CTest 66/66 通过，`git diff --check` 通过。ESP-IDF 5.5.5 / ESP32-S3 全量构建通过，应用镜像 `0x194a60`，最小 App 分区余量 47%。未烧录，实板按键、旋钮方向、暂停与听感仍待验证。
+
 ## 2026-09-02：USB 描述符与固定资源审计
 
 - 修复 Windows Code 10 的直接原因：键盘 LED Output 恢复 `5+3=8 bit` 对齐；将 `SEQ1/0x17` 的 63 字节 Feature/Output 移入 Vendor Collection，并补齐 `0x13` 的 16 字节 Output 声明，保持与回调合同一致。

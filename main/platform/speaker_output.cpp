@@ -576,8 +576,8 @@ bool SpeakerOutput::queue_music_note(std::size_t key_index, bool pressed) {
   const auto tail = (music_command_head_ + music_command_count_) %
                     kMusicCommandCapacity;
   music_commands_[tail] = {
-      static_cast<std::uint8_t>(key_index), pressed, false,
-      ai_keyboard::DrumVoice::Click, 100};
+      MusicCommand::Kind::Note, static_cast<std::uint8_t>(key_index), pressed,
+      false, ai_keyboard::DrumVoice::Click, 100, 0};
   ++music_command_count_;
   portEXIT_CRITICAL(&music_mux_);
   return true;
@@ -592,7 +592,80 @@ bool SpeakerOutput::queue_drum_hit(ai_keyboard::DrumVoice drum,
     return false;
   }
   const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
-  music_commands_[tail] = {0U, true, true, drum, velocity_percent};
+  music_commands_[tail] = {MusicCommand::Kind::DrumHit, 0U, true, true, drum,
+                            velocity_percent, 0};
+  ++music_command_count_;
+  portEXIT_CRITICAL(&music_mux_);
+  return true;
+}
+
+bool SpeakerOutput::cycle_drum_beat() {
+  if (!music_active()) return false;
+  portENTER_CRITICAL(&music_mux_);
+  if (music_command_count_ == kMusicCommandCapacity) {
+    portEXIT_CRITICAL(&music_mux_);
+    return false;
+  }
+  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+  music_commands_[tail].kind = MusicCommand::Kind::CycleDrumBeat;
+  ++music_command_count_;
+  portEXIT_CRITICAL(&music_mux_);
+  return true;
+}
+
+bool SpeakerOutput::toggle_drum_sequence() {
+  if (!music_active()) return false;
+  portENTER_CRITICAL(&music_mux_);
+  if (music_command_count_ == kMusicCommandCapacity) {
+    portEXIT_CRITICAL(&music_mux_);
+    return false;
+  }
+  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+  music_commands_[tail].kind = MusicCommand::Kind::ToggleDrumSequence;
+  ++music_command_count_;
+  portEXIT_CRITICAL(&music_mux_);
+  return true;
+}
+
+bool SpeakerOutput::toggle_drum_pause() {
+  if (!music_active()) return false;
+  portENTER_CRITICAL(&music_mux_);
+  if (music_command_count_ == kMusicCommandCapacity) {
+    portEXIT_CRITICAL(&music_mux_);
+    return false;
+  }
+  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+  music_commands_[tail].kind = MusicCommand::Kind::ToggleDrumPause;
+  ++music_command_count_;
+  portEXIT_CRITICAL(&music_mux_);
+  return true;
+}
+
+bool SpeakerOutput::stop_drum_loop() {
+  if (!music_active()) return false;
+  portENTER_CRITICAL(&music_mux_);
+  if (music_command_count_ == kMusicCommandCapacity) {
+    portEXIT_CRITICAL(&music_mux_);
+    return false;
+  }
+  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+  music_commands_[tail].kind = MusicCommand::Kind::StopDrumLoop;
+  ++music_command_count_;
+  portEXIT_CRITICAL(&music_mux_);
+  return true;
+}
+
+bool SpeakerOutput::adjust_drum_tempo(int delta_bpm) {
+  if (!music_active() || delta_bpm == 0) return false;
+  portENTER_CRITICAL(&music_mux_);
+  if (music_command_count_ == kMusicCommandCapacity) {
+    portEXIT_CRITICAL(&music_mux_);
+    return false;
+  }
+  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+  music_commands_[tail] = {MusicCommand::Kind::AdjustDrumTempo, 0U, false,
+                            false, ai_keyboard::DrumVoice::Click, 100,
+                            delta_bpm};
   ++music_command_count_;
   portEXIT_CRITICAL(&music_mux_);
   return true;
@@ -1375,6 +1448,8 @@ void SpeakerOutput::consume_music_commands() {
     portEXIT_CRITICAL(&music_mux_);
     music_synth_ = {};
     music_synth_.apply_config(config);
+    // 新会话不能继承已取消的鼓机循环，否则切回钢琴会在无人触发时继续打点。
+    drum_sequencer_.stop();
     music_applied_mask_ = 0U;
   }
 
@@ -1390,16 +1465,36 @@ void SpeakerOutput::consume_music_commands() {
   portEXIT_CRITICAL(&music_mux_);
 
   for (std::size_t index = 0; index < count; ++index) {
-    if (commands[index].drum) {
-      music_synth_.trigger_drum(commands[index].drum_voice,
-                                commands[index].velocity_percent);
-    } else if (commands[index].pressed) {
-      music_synth_.note_on(commands[index].key_index);
-    } else {
-      music_synth_.note_off(commands[index].key_index);
+    switch (commands[index].kind) {
+      case MusicCommand::Kind::Note:
+        if (commands[index].pressed) {
+          music_synth_.note_on(commands[index].key_index);
+        } else {
+          music_synth_.note_off(commands[index].key_index);
+        }
+        music_applied_mask_ = ai_keyboard::updated_music_pressed_mask(
+            music_applied_mask_, commands[index].key_index, commands[index].pressed);
+        break;
+      case MusicCommand::Kind::DrumHit:
+        music_synth_.trigger_drum(commands[index].drum_voice,
+                                  commands[index].velocity_percent);
+        break;
+      case MusicCommand::Kind::CycleDrumBeat:
+        drum_sequencer_.cycle_beat_mode();
+        break;
+      case MusicCommand::Kind::ToggleDrumSequence:
+        drum_sequencer_.toggle_sequential();
+        break;
+      case MusicCommand::Kind::ToggleDrumPause:
+        drum_sequencer_.toggle_pause();
+        break;
+      case MusicCommand::Kind::StopDrumLoop:
+        drum_sequencer_.stop();
+        break;
+      case MusicCommand::Kind::AdjustDrumTempo:
+        drum_sequencer_.adjust_bpm(commands[index].tempo_delta_bpm);
+        break;
     }
-    music_applied_mask_ = ai_keyboard::updated_music_pressed_mask(
-        music_applied_mask_, commands[index].key_index, commands[index].pressed);
   }
 
   const auto desired_mask = music_pressed_mask_.load(std::memory_order_acquire);
@@ -1453,6 +1548,9 @@ esp_err_t SpeakerOutput::play_music_frames(std::uint32_t generation,
   while (!cancelled(generation)) {
     consume_music_commands();
     consume_music_sequence();
+    if (const auto drum = drum_sequencer_.advance(frame_capacity)) {
+      music_synth_.trigger_drum(*drum);
+    }
     music_sequence_player_.advance(frame_capacity, &music_synth_);
     music_synth_.render(frame, frame_capacity);
     const auto volume = music_volume_percent();
@@ -1469,7 +1567,7 @@ esp_err_t SpeakerOutput::play_music_frames(std::uint32_t generation,
       return write_result;
     }
     if (!music_synth_.active() && !music_synth_.metronome_running() &&
-        !music_sequence_player_.playing()) {
+        !music_sequence_player_.playing() && !drum_sequencer_.session_active()) {
       return ESP_OK;
     }
   }
