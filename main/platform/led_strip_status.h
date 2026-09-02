@@ -96,6 +96,7 @@ class StatusLedStrip {
   bool agent_status_active_ = false;
   bool agent_status_rendered_ = false;
   bool idle_rendered_ = false;
+  std::size_t function_slot_number_ = 1U;
 };
 
 }  // namespace easy_input

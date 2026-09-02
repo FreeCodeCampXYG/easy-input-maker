@@ -218,6 +218,7 @@ void StatusLedStrip::show_function_slot(std::size_t slot_number) {
   effect_until_ms_ = 0;
   last_frame_ms_ = 0;
   cursor_ = 0;
+  function_slot_number_ = slot_number == 0U ? 1U : slot_number;
   set_all({});
   const auto mask = static_cast<std::uint32_t>(slot_number == 0U ? 1U : slot_number);
   for (std::size_t index = 0; index < leds_.size(); ++index) {
@@ -605,6 +606,13 @@ void StatusLedStrip::render_agent_status() {
 
 void StatusLedStrip::render_idle_status() {
   set_all({});
+  const auto mask = static_cast<std::uint32_t>(
+      function_slot_number_ == 0U ? 1U : function_slot_number_);
+  for (std::size_t index = 0; index < leds_.size(); ++index) {
+    if ((mask & (1U << index)) != 0U) {
+      leds_[index] = {0, 18, 24};
+    }
+  }
   flush();
 }
 

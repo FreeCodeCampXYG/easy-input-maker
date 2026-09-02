@@ -3669,6 +3669,41 @@ void ble_control_write_uses_a_bounded_stack_frame() {
          std::string::npos);
 }
 
+void boot_music_restore_does_not_skip_default_function_slot() {
+  const auto app = read_source("main/app_main.cpp");
+  const auto apply = section(
+      app,
+      "bool apply_music_config(AppContext* app,",
+      "void load_stored_music_config(AppContext* app)");
+  assert(apply.find("const bool boot_restore") != std::string::npos);
+  assert(apply.find("app->music_mode_enabled = false") != std::string::npos);
+  assert(apply.find("set_current(0U)") != std::string::npos);
+  assert(apply.find("if (!boot_restore && config.enabled && config.metronome_enabled)") !=
+         std::string::npos);
+  assert(apply.find("if (!boot_restore && app->encoder_function_ring.current() == 0U)") ==
+         std::string::npos);
+}
+
+void encoder_slot_switch_preserves_previous_slot_on_failure_and_led_idle() {
+  const auto app = read_source("main/app_main.cpp");
+  const auto cycle = section(
+      app,
+      "void cycle_encoder_function(AppContext* app) {",
+      "void show_encoder_function_cycle_ready(AppContext* app)");
+  assert(cycle.find("const auto previous_slot") != std::string::npos);
+  assert(cycle.find("set_current(previous_slot)") != std::string::npos);
+  assert(cycle.find("show_function_slot(previous_slot + 1U)") != std::string::npos);
+
+  const auto led_header = read_source("main/platform/led_strip_status.h");
+  const auto led = read_source("main/platform/led_strip_status.cpp");
+  assert(led_header.find("function_slot_number_") != std::string::npos);
+  const auto idle = section(
+      led,
+      "void StatusLedStrip::render_idle_status()",
+      "void StatusLedStrip::set_all(Rgb color)");
+  assert(idle.find("function_slot_number_") != std::string::npos);
+}
+
 }  // namespace
 
 int main() {
@@ -3708,5 +3743,7 @@ int main() {
   config_status_publication_uses_shared_bounded_ble_encoders();
   usb_hid_descriptor_keeps_all_output_reports_byte_aligned();
   ble_control_write_uses_a_bounded_stack_frame();
+  boot_music_restore_does_not_skip_default_function_slot();
+  encoder_slot_switch_preserves_previous_slot_on_failure_and_led_idle();
   return 0;
 }

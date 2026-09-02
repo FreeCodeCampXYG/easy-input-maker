@@ -2258,6 +2258,7 @@ void cycle_encoder_function(AppContext* app) {
   if (app == nullptr) {
     return;
   }
+  const auto previous_slot = app->encoder_function_ring.current();
   const auto slot = app->encoder_function_ring.advance();
   // 环形索引内部从 0 开始，灯位协议从 1 开始；显示前转换，避免用户看到“全灭”而误判切换失败。
   app->leds.show_function_slot(slot + 1U);
@@ -2277,13 +2278,15 @@ void cycle_encoder_function(AppContext* app) {
   if (!app->speaker.ready() &&
       (!app->speaker.shutdown_complete() ||
        app->speaker.begin(app->platform_task, &app->audio_io_arbiter) != ESP_OK)) {
-    app->encoder_function_ring.set_current(0U);
+    app->encoder_function_ring.set_current(previous_slot);
+    app->leds.show_function_slot(previous_slot + 1U);
     ESP_LOGW(kTag, "ENC_FUNCTION slot=%u rejected speaker_unavailable",
              static_cast<unsigned>(slot));
     return;
   }
   if (!app->speaker.request_music()) {
-    app->encoder_function_ring.set_current(0U);
+    app->encoder_function_ring.set_current(previous_slot);
+    app->leds.show_function_slot(previous_slot + 1U);
     ESP_LOGW(kTag, "ENC_FUNCTION slot=%u rejected music_unavailable",
              static_cast<unsigned>(slot));
     return;
@@ -3197,13 +3200,15 @@ bool apply_music_config(AppContext* app,
     return false;
   }
   // 音乐开关先于输入分发更新，避免配置关闭后旧按键路径仍被钢琴拦截。
-  app->music_mode_enabled = config.enabled;
-  app->drum_mode_enabled = false;
-  app->encoder_function_ring.set_current(config.enabled ? 1U : 0U);
-  if (source == nullptr || std::string_view(source) != "boot") {
-    app->leds.show_function_slot(config.enabled ? 2U : 1U);
+  // 启动只恢复音乐参数，不抢占默认的第一个键盘槽；用户完成一次长按切换后，
+  // 才允许音乐槽接管按键，避免“未操作却已经在第二功能”的状态歧义。
+  const bool boot_restore = source != nullptr && std::string_view(source) == "boot";
+  if (boot_restore) {
+    app->music_mode_enabled = false;
+    app->drum_mode_enabled = false;
+    app->encoder_function_ring.set_current(0U);
   }
-  if (config.enabled && config.metronome_enabled) {
+  if (!boot_restore && config.enabled && config.metronome_enabled) {
     if (!app->speaker.ready() &&
         (!app->speaker.shutdown_complete() ||
          app->speaker.begin(app->platform_task, &app->audio_io_arbiter) != ESP_OK)) {
