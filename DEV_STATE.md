@@ -1,5 +1,18 @@
 # EasyInput Maker 开发状态
 
+## 2026-09-05：音乐音量旋钮边界
+
+- 槽位 2（钢琴）旋转编码器继续调节音乐音量，范围保持 5%—100%，每格 5%。
+- 槽位 3（鼓机）仅在《欢乐颂》序列实际播放时改为调节音乐音量；未播放曲目时仍调节鼓机速度，其他功能不受影响。
+- 验证：宿主构建成功，完整 CTest 66/66 通过，`git diff --check` 通过；实板音量和听感仍待验证。
+
+## 2026-09-05：修复钢琴重叠按键断音
+
+- 根因：`MusicSynth` 原先仅有 3 个 voice；按键释放采用衰减尾音，前一个键未完全松开时会继续占用 voice，导致后续重叠按键被覆盖。
+- 修改：`components/keyboard/include/keyboard/music_synth.h` 将最大 voice 数扩展为 8，覆盖全部实体键；混音仍按固定最大 voice 数保留削波余量。
+- 测试：新增 `music_synth_tests` 的 8 键重叠发声覆盖；`cmake --build build-host --parallel` 成功，`ctest --test-dir build-host --output-on-failure` 通过 66/66，`git diff --check` 通过。
+- 未验证：ESP-IDF 构建、烧录和实板听感仍待后续独立验证。
+
 ## 2026-09-05：固件 Release 增加离线 ZIP
 
 - `.github/workflows/firmware-release.yml` 在 ESP-IDF 构建和清单生成后新增固定四文件 ZIP：`bootloader.bin`、`partition-table.bin`、`easy_input_keyboard.bin` 与 `firmware-manifest.json`。

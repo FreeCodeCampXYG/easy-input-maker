@@ -3021,7 +3021,9 @@ bool dispatch_music_volume(AppContext* app,
     return false;
   }
   constexpr int kMusicVolumePercentPerDetent = 5;
-  if (app->drum_mode_enabled) {
+  // 槽位 3 平时旋钮控制鼓机速度；仅在《欢乐颂》序列实际播放时切换为音量，
+  // 避免把钢琴/曲目音量控制泄漏到其他鼓机功能。
+  if (app->drum_mode_enabled && !app->speaker.music_sequence_active()) {
     constexpr int kDrumTempoPerDetent = 5;
     return app->speaker.adjust_drum_tempo(
         event.encoder_step * kDrumTempoPerDetent);

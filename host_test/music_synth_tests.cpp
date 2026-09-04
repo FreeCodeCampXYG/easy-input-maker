@@ -99,6 +99,26 @@ void three_voice_chord_keeps_headroom() {
   }
 }
 
+void all_overlapping_keys_keep_audible_voices() {
+  ai_keyboard::MusicConfig config;
+  config.enabled = true;
+  config.attack_ms = 0;
+  config.release_ms = 45;
+  ai_keyboard::MusicSynth synth;
+  assert(synth.apply_config(config));
+  for (std::size_t key = 0; key < ai_keyboard::kMusicKeyCount; ++key) {
+    assert(synth.note_on(key));
+  }
+  std::array<std::int16_t, 480> frame{};
+  synth.render(frame.data(), frame.size());
+  bool audible = false;
+  for (const auto sample : frame) {
+    audible = audible || sample != 0;
+  }
+  assert(audible);
+  assert(synth.active());
+}
+
 void drum_voices_render_and_decay() {
   ai_keyboard::MusicConfig config;
   config.enabled = true;
@@ -123,6 +143,7 @@ int main() {
   adsr_release_and_phase_are_continuous();
   metronome_and_tuner_are_offline_and_deterministic();
   three_voice_chord_keeps_headroom();
+  all_overlapping_keys_keep_audible_voices();
   drum_voices_render_and_decay();
   return 0;
 }

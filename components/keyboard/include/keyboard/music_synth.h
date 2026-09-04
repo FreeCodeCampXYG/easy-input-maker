@@ -9,7 +9,9 @@ namespace ai_keyboard {
 
 constexpr std::size_t kMusicKeyCount = 8;
 constexpr std::uint32_t kMusicSampleRate = 48000;
-constexpr std::size_t kMusicMaxVoices = 3;
+// 8 个实体键可同时按下；voice 池必须覆盖全部按键，否则释放尾音会占满
+// voice 并让后续按键无法起音。混音仍按固定最大 voice 数留出削波余量。
+constexpr std::size_t kMusicMaxVoices = kMusicKeyCount;
 
 enum class MusicScale : std::uint8_t { Major, NaturalMinor, PentatonicMajor, Custom };
 enum class MusicTimbre : std::uint8_t { SoftPiano, Organ, Bell, Pluck };
