@@ -1,5 +1,11 @@
 # EasyInput Maker 开发状态
 
+## 2026-09-05：固件 Release 增加离线 ZIP
+
+- `.github/workflows/firmware-release.yml` 在 ESP-IDF 构建和清单生成后新增固定四文件 ZIP：`bootloader.bin`、`partition-table.bin`、`easy_input_keyboard.bin` 与 `firmware-manifest.json`。
+- ZIP 同时加入构建产物、构建证明和 GitHub Release 资产；原有单文件资产与 `SHA256SUMS.txt` 保留不变，兼容现有下载和校验流程。
+- 验证：工作流 YAML 由 Python `yaml.safe_load` 解析通过，`git diff --check` 通过；尚未触发 GitHub Actions。
+
 ## 2026-09-03：修正《欢乐颂》展开段八分音符时值
 
 - 按用户复核的简谱，展开段第 2、3 小节中经过的 `3 4` 由四分音符（十六分拍 4）改回八分音符（十六分拍 2）；A/B/D 句的附点 `6`、八分 `2`、二分 `8` 与 C 句低音 5 均核对无误，事件总数维持 96。
