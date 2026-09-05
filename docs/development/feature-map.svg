@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="860" viewBox="0 0 960 860" role="img" aria-labelledby="title desc">
+  <title id="title">EasyInput Maker 当前功能与共享代码地图</title>
+  <desc id="desc">物理输入经过统一编排进入键盘、钢琴或节奏功能。三种功能依赖共享底座，当前并未拆成独立插件。</desc>
+  <style>text{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;fill:#111827} .sub{font-size:15px;fill:#6b7280} .name{font-size:20px;font-weight:600} .code{font-family:Consolas,monospace;font-size:16px}</style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#2563eb"/></marker></defs>
+  <rect width="960" height="860" fill="#ffffff"/>
+  <text x="40" y="45" font-size="28" font-weight="600">EasyInput Maker · 功能地图</text>
+  <text x="40" y="76" class="sub">当前实现的职责分组；箭头表示输入分发或底座依赖，不代表独立插件边界</text>
+  <rect id="input" data-graph-role="node" data-node-id="input" x="330" y="115" width="300" height="70" rx="8" fill="#eff6ff" stroke="#d1d5db"/>
+  <text x="480" y="145" text-anchor="middle" class="name">八键与旋钮</text>
+  <text x="480" y="169" text-anchor="middle" class="sub">GPIO 去抖 / 编码器事件</text>
+  <path data-graph-role="edge" data-source="input" data-target="router" d="M480 185V245" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect id="router" data-graph-role="node" data-node-id="router" x="40" y="245" width="880" height="90" rx="8" fill="#eff6ff" stroke="#d1d5db"/>
+  <text x="480" y="278" text-anchor="middle" class="name">统一编排：main/app_main.cpp</text>
+  <text x="480" y="306" text-anchor="middle" class="sub">handle_input_event / cycle_encoder_function / 配置应用与状态发布</text>
+  <path data-graph-role="edge" data-source="router" data-target="keyboard" d="M180 335V415" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+  <path data-graph-role="edge" data-source="router" data-target="piano" d="M480 335V415" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+  <path data-graph-role="edge" data-source="router" data-target="rhythm" d="M780 335V415" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect id="keyboard" data-graph-role="node" data-node-id="keyboard" x="40" y="415" width="280" height="125" rx="8" fill="#f0fdfa" stroke="#d1d5db"/>
+  <text x="180" y="449" text-anchor="middle" class="name">keyboard · 槽位 1</text>
+  <text x="180" y="478" text-anchor="middle" class="sub">原版键盘 / PTT / Host Action</text>
+  <text x="180" y="511" text-anchor="middle" class="code">keymap / HeldKeyboard</text>
+  <rect id="piano" data-graph-role="node" data-node-id="piano" x="340" y="415" width="280" height="125" rx="8" fill="#f0fdf4" stroke="#d1d5db"/>
+  <text x="480" y="449" text-anchor="middle" class="name">piano · 槽位 2</text>
+  <text x="480" y="478" text-anchor="middle" class="sub">八键音符 / 音色 / 音量</text>
+  <text x="480" y="511" text-anchor="middle" class="code">MusicSynth</text>
+  <rect id="rhythm" data-graph-role="node" data-node-id="rhythm" x="640" y="415" width="280" height="125" rx="8" fill="#fff7ed" stroke="#d1d5db"/>
+  <text x="780" y="449" text-anchor="middle" class="name">rhythm · 槽位 3</text>
+  <text x="780" y="478" text-anchor="middle" class="sub">鼓机 / 拍号 / K8 内置曲目</text>
+  <text x="780" y="511" text-anchor="middle" class="code">DrumSequencer</text>
+  <path data-graph-role="edge" data-source="keyboard" data-target="shared" d="M180 540V620" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+  <path data-graph-role="edge" data-source="piano" data-target="shared" d="M480 540V620" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+  <path data-graph-role="edge" data-source="rhythm" data-target="shared" d="M780 540V620" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect id="shared" data-graph-role="node" data-node-id="shared" x="40" y="620" width="880" height="130" rx="8" fill="#f9fafb" stroke="#d1d5db"/>
+  <text x="480" y="654" text-anchor="middle" class="name">共享底座：修改这里必须反查消费者</text>
+  <text x="480" y="685" text-anchor="middle" class="sub">USB / BLE · 配置 / NVS · 音频仲裁 · 灯光 / 电源 / 睡眠</text>
+  <text x="480" y="717" text-anchor="middle" class="sub">钢琴与节奏共用 MusicSynth / MusicSequencePlayer / SpeakerOutput</text>
+  <text x="40" y="797" font-size="18" font-weight="600">阅读顺序：L0 总览 → L1 目标功能 → L2 共享合同 → L3 必要历史</text>
+  <text x="40" y="829" class="sub">新增功能先定输入与资源合同；功能名字保持稳定，槽位只是展示顺序。</text>
+</svg>

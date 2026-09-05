@@ -4,6 +4,10 @@
 
 ## 局部文档索引
 
+- [本次优化核对与修改留痕](review/session-2026-09-06/README.md) — 编号账本、验收清单、问题反馈模板与代码快照
+
+- [功能分层阅读与修改指南](development/README.md) — 人工/AI 入口、三张功能卡、共享消费者、结构图、格式规范与扩展模板
+
 <!-- 示例: - frontend/README.md — 前端本地开发入口 -->
 
 - `getting-started/README.md` — 环境准备、首次构建与宿主测试

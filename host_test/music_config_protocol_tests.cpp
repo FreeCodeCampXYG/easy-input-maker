@@ -43,9 +43,23 @@ void invalid_magic_version_and_reserved_flags_fail_closed() {
   assert(!ai_keyboard::decode_music_config(payload.data(), payload.size()).has_value());
 }
 
+void invalid_scale_does_not_fall_back_to_major() {
+  // 未知调式不能静默变成大调并被持久化。
+  ai_keyboard::MusicConfig invalid;
+  std::array<std::uint8_t, ai_keyboard::kMusicConfigPayloadLen> payload{};
+  assert(ai_keyboard::encode_music_config(invalid, &payload));
+  payload[8] = 255;
+  assert(!ai_keyboard::decode_music_config(payload.data(), payload.size()));
+  invalid.scale = static_cast<ai_keyboard::MusicScale>(255);
+  ai_keyboard::MusicSynth synth;
+  assert(!synth.apply_config(invalid));
+  assert(synth.config().scale == ai_keyboard::MusicScale::Major);
+}
+
 }  // namespace
 
 int main() {
+  invalid_scale_does_not_fall_back_to_major();
   round_trip_preserves_all_public_controls();
   invalid_magic_version_and_reserved_flags_fail_closed();
   return 0;

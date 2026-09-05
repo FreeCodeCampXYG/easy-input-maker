@@ -4,6 +4,8 @@
 
 ## 开始前
 
+先用 [功能分层阅读指南](docs/development/README.md) 选择目标功能卡。涉及 `app_main.cpp`、输入传输、合成器、扬声器 worker、配置或电源时同时读共享合同；只改一个功能也必须保留其他消费者行为。新增功能使用其中的变更卡模板，不自行复制整套控制目录或建立第二套硬件 owner。
+
 1. 阅读 `AGENTS.md`、当前任务涉及的代码和对应 `docs/` 文档。
 2. 涉及引脚、BOOT、GPIO8、USB、音频或睡眠时，必须先读 `docs/hardware/easyinput-v2-safety.md`。
 3. 不猜测板级事实，不把构建成功或静态扫描写成实板成功。

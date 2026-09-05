@@ -6,6 +6,43 @@
 
 namespace {
 
+void envelope_cache_preserves_pcm_fingerprints() {
+  // 优化前录下的 PCM 指纹：四种音色、八键复音、播放中改配置和长尾音。
+  constexpr std::array<std::uint64_t, 8> expected{{
+      5344675918021175315ULL, 9527039558125785837ULL,
+      6235575889531046513ULL, 11861811407602363855ULL,
+      3608587429469577061ULL, 686405771077223468ULL,
+      8248977947322849955ULL, 4742436947417588223ULL}};
+  for (unsigned scenario = 0; scenario < expected.size(); ++scenario) {
+    ai_keyboard::MusicConfig config;
+    config.enabled = true;
+    config.attack_ms = scenario * 17;
+    config.release_ms = scenario * 31;
+    config.timbres.fill(static_cast<ai_keyboard::MusicTimbre>(scenario % 4));
+    ai_keyboard::MusicSynth synth;
+    assert(synth.apply_config(config));
+    for (unsigned key = 0; key < 8; ++key) assert(synth.note_on(key, 30 + key * 10));
+    std::array<std::int16_t, 480> pcm{};
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (unsigned frame = 0; frame < 200; ++frame) {
+      if (frame == 50) {
+        config.attack_ms = 2000;
+        config.release_ms = 4000;
+        assert(synth.apply_config(config));
+      }
+      if (frame == 100) {
+        for (unsigned key = 0; key < 8; ++key) assert(synth.note_off(key));
+      }
+      synth.render(pcm.data(), pcm.size());
+      for (const auto sample : pcm) {
+        hash ^= static_cast<std::uint16_t>(sample);
+        hash *= 1099511628211ULL;
+      }
+    }
+    assert(hash == expected[scenario]);
+  }
+}
+
 void defaults_are_c_major_from_c4_to_c5() {
   ai_keyboard::MusicConfig config;
   assert(std::abs(ai_keyboard::music_key_frequency_hz(config, 0) - 261.625565) < 0.001);
@@ -134,9 +171,53 @@ void drum_voices_render_and_decay() {
   assert(!synth.active());
 }
 
+void six_eight_clicks_use_eighth_notes() {
+  ai_keyboard::MusicConfig meter_config;
+  meter_config.enabled = true;
+  meter_config.metronome_enabled = true;
+  meter_config.beats_per_bar = 6;
+  meter_config.beat_unit = 8;
+  ai_keyboard::MusicSynth meter;
+  assert(meter.apply_config(meter_config));
+  std::array<std::int16_t, 1> tick{};
+  meter.render(tick.data(), 1);
+  assert(meter.take_metronome_tick(nullptr));
+  for (int frame = 0; frame < 12000; ++frame) meter.render(tick.data(), 1);
+  assert(meter.take_metronome_tick(nullptr));
+}
+
+void piano_keys_do_not_reuse_percussion_voices() {
+  // 钢琴松键不能释放或冒认仍在衰减的鼓声声部。
+  ai_keyboard::MusicSynth mixed;
+  ai_keyboard::MusicConfig mixed_config;
+  mixed_config.enabled = true;
+  assert(mixed.apply_config(mixed_config));
+  assert(mixed.trigger_drum(ai_keyboard::DrumVoice::Kick));
+  assert(!mixed.note_off(0));
+  assert(mixed.note_on(0));
+  assert(mixed.note_off(0));
+  // 新音符必须占用独立 voice；分别渲染再相加与同池混音仅差整数舍入。
+  ai_keyboard::MusicSynth drum_only, note_only;
+  assert(drum_only.apply_config(mixed_config));
+  assert(note_only.apply_config(mixed_config));
+  assert(drum_only.trigger_drum(ai_keyboard::DrumVoice::Kick));
+  assert(note_only.note_on(0));
+  assert(note_only.note_off(0));
+  std::array<std::int16_t, 128> combined{}, drums{}, notes{};
+  mixed.render(combined.data(), combined.size());
+  drum_only.render(drums.data(), drums.size());
+  note_only.render(notes.data(), notes.size());
+  for (std::size_t i = 0; i < combined.size(); ++i) {
+    assert(std::abs(static_cast<int>(combined[i]) - drums[i] - notes[i]) <= 1);
+  }
+}
+
 }  // namespace
 
 int main() {
+  envelope_cache_preserves_pcm_fingerprints();
+  six_eight_clicks_use_eighth_notes();
+  piano_keys_do_not_reuse_percussion_voices();
   defaults_are_c_major_from_c4_to_c5();
   octave_and_cents_follow_equal_temperament();
   scale_selection_and_phase_increment_are_valid();

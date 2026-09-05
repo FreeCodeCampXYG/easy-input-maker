@@ -85,39 +85,48 @@ std::optional<DrumVoice> DrumSequencer::advance(std::size_t sample_count) {
     return std::nullopt;
   }
 
-  const auto beat_divisor =
-      !sequential_enabled_ && pattern_ == DrumBeatPattern::BeatSixEight ? 2U : 1U;
-  const auto step_denominator = static_cast<std::uint32_t>(bpm_) * beat_divisor;
-  const auto duration_num = static_cast<std::uint64_t>(kMusicSampleRate) * 60U +
-                            frame_remainder_;
-  frames_until_next_ = static_cast<std::uint32_t>(duration_num / step_denominator);
-  frame_remainder_ = static_cast<std::uint32_t>(duration_num % step_denominator);
-  if (frames_until_next_ == 0U) frames_until_next_ = 1U;
-
+  // 保留跨帧余量，避免每拍丢掉不足一帧的时间而持续变慢。
+  auto remaining = sample_count - frames_until_next_;
   DrumVoice voice = DrumVoice::Click;
-  if (sequential_enabled_) {
-    voice = kSequential[step_index_ % kSequential.size()];
-    step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kSequential.size());
-  } else {
-    switch (pattern_) {
-      case DrumBeatPattern::BeatFour:
-        voice = kFourFour[step_index_ % kFourFour.size()];
-        step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kFourFour.size());
-        break;
-      case DrumBeatPattern::BeatThree:
-        voice = kThreeFour[step_index_ % kThreeFour.size()];
-        step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kThreeFour.size());
-        break;
-      case DrumBeatPattern::BeatSixEight:
-        voice = kSixEight[step_index_ % kSixEight.size()];
-        step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kSixEight.size());
-        break;
-      case DrumBeatPattern::BeatTwo:
-        voice = kTwoFour[step_index_ % kTwoFour.size()];
-        step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kTwoFour.size());
-        break;
+  do {
+    const auto beat_divisor =
+        !sequential_enabled_ && pattern_ == DrumBeatPattern::BeatSixEight ? 2U : 1U;
+    const auto step_denominator = static_cast<std::uint32_t>(bpm_) * beat_divisor;
+    const auto duration_num = static_cast<std::uint64_t>(kMusicSampleRate) * 60U +
+                              frame_remainder_;
+    frames_until_next_ = static_cast<std::uint32_t>(duration_num / step_denominator);
+    frame_remainder_ = static_cast<std::uint32_t>(duration_num % step_denominator);
+    if (frames_until_next_ == 0U) frames_until_next_ = 1U;
+
+    if (sequential_enabled_) {
+      voice = kSequential[step_index_ % kSequential.size()];
+      step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kSequential.size());
+    } else {
+      switch (pattern_) {
+        case DrumBeatPattern::BeatFour:
+          voice = kFourFour[step_index_ % kFourFour.size()];
+          step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kFourFour.size());
+          break;
+        case DrumBeatPattern::BeatThree:
+          voice = kThreeFour[step_index_ % kThreeFour.size()];
+          step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kThreeFour.size());
+          break;
+        case DrumBeatPattern::BeatSixEight:
+          voice = kSixEight[step_index_ % kSixEight.size()];
+          step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kSixEight.size());
+          break;
+        case DrumBeatPattern::BeatTwo:
+          voice = kTwoFour[step_index_ % kTwoFour.size()];
+          step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kTwoFour.size());
+          break;
+      }
     }
-  }
+    if (remaining < frames_until_next_) {
+      frames_until_next_ -= static_cast<std::uint32_t>(remaining);
+      break;
+    }
+    remaining -= frames_until_next_;
+  } while (true);
   return voice;
 }
 

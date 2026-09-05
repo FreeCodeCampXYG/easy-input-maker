@@ -23,6 +23,7 @@ class MusicSequencePlayer {
   std::uint64_t frame_remainder_ = 0;
   bool playing_ = false;
   bool paused_ = false;
+  bool paused_note_released_ = false;
 };
 
 }  // namespace ai_keyboard

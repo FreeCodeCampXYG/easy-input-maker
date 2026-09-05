@@ -3722,9 +3722,26 @@ void active_music_slots_never_fall_back_to_host_actions() {
   assert(guard.find("return true;") != std::string::npos);
 }
 
+void music_controls_preserve_slot_ownership_and_persistence_ack() {
+  const auto music_volume = section(
+      read_source("main/app_main.cpp"),
+      "bool dispatch_music_volume(AppContext* app,",
+      "bool handle_input_event(const easy_input::InputEvent& event, void* context)");
+  // 音频入队失败也必须消费音乐槽旋钮，不能把失败当成原版滚动请求。
+  assert(music_volume.find("return app->speaker.adjust_drum_tempo") == std::string::npos);
+  const auto song_apply = section(
+      read_source("main/app_main.cpp"),
+      "void apply_pending_music_sequence(AppContext* app)",
+      "void apply_pending_config(AppContext* app)");
+  assert(song_apply.find("0U, applied, endpoint_epoch") == std::string::npos);
+  assert(song_apply.find("saved = app->config_store.save_song") != std::string::npos);
+  assert(song_apply.find("0U, saved, endpoint_epoch") != std::string::npos);
+}
+
 }  // namespace
 
 int main() {
+  music_controls_preserve_slot_ownership_and_persistence_ack();
   usb_async_work_is_durable_before_owner_notification();
   power_telemetry_reports_awake_and_real_deep_sleep_facts_only();
   battery_update_releases_hidd_lock_before_entering_nimble();

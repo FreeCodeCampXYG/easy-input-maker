@@ -582,18 +582,26 @@ bool SpeakerOutput::queue_music_note(std::size_t key_index, bool pressed) {
       break;
     }
   }
-  portENTER_CRITICAL(&music_mux_);
-  if (music_command_count_ == kMusicCommandCapacity) {
-    portEXIT_CRITICAL(&music_mux_);
+  if (!enqueue_music_command({
+          MusicCommand::Kind::Note, static_cast<std::uint8_t>(key_index), pressed,
+          ai_keyboard::DrumVoice::Click, 100, 0})) {
     // release 不能因瞬时队列压力丢失；音频任务会在下一帧按最终键状态补齐。
     music_resync_pending_.store(true, std::memory_order_release);
     return true;
   }
-  const auto tail = (music_command_head_ + music_command_count_) %
-                    kMusicCommandCapacity;
-  music_commands_[tail] = {
-      MusicCommand::Kind::Note, static_cast<std::uint8_t>(key_index), pressed,
-      false, ai_keyboard::DrumVoice::Click, 100, 0};
+  return true;
+}
+
+bool SpeakerOutput::enqueue_music_command(const MusicCommand& command) {
+  if (!music_active()) return false;
+  // 所有命令共用同一临界区和容量门闸；满队列不覆盖旧命令，Note 调用方保留松键补偿。
+  portENTER_CRITICAL(&music_mux_);
+  if (music_command_count_ == kMusicCommandCapacity) {
+    portEXIT_CRITICAL(&music_mux_);
+    return false;
+  }
+  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+  music_commands_[tail] = command;
   ++music_command_count_;
   portEXIT_CRITICAL(&music_mux_);
   return true;
@@ -601,90 +609,30 @@ bool SpeakerOutput::queue_music_note(std::size_t key_index, bool pressed) {
 
 bool SpeakerOutput::queue_drum_hit(ai_keyboard::DrumVoice drum,
                                    std::uint8_t velocity_percent) {
-  if (!music_active()) return false;
-  portENTER_CRITICAL(&music_mux_);
-  if (music_command_count_ == kMusicCommandCapacity) {
-    portEXIT_CRITICAL(&music_mux_);
-    return false;
-  }
-  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
-  music_commands_[tail] = {MusicCommand::Kind::DrumHit, 0U, true, true, drum,
-                            velocity_percent, 0};
-  ++music_command_count_;
-  portEXIT_CRITICAL(&music_mux_);
-  return true;
+  return enqueue_music_command({MusicCommand::Kind::DrumHit, 0U, true, drum,
+                                velocity_percent, 0});
 }
 
 bool SpeakerOutput::cycle_drum_beat() {
-  if (!music_active()) return false;
-  portENTER_CRITICAL(&music_mux_);
-  if (music_command_count_ == kMusicCommandCapacity) {
-    portEXIT_CRITICAL(&music_mux_);
-    return false;
-  }
-  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
-  music_commands_[tail].kind = MusicCommand::Kind::CycleDrumBeat;
-  ++music_command_count_;
-  portEXIT_CRITICAL(&music_mux_);
-  return true;
+  return enqueue_music_command({MusicCommand::Kind::CycleDrumBeat});
 }
 
 bool SpeakerOutput::toggle_drum_sequence() {
-  if (!music_active()) return false;
-  portENTER_CRITICAL(&music_mux_);
-  if (music_command_count_ == kMusicCommandCapacity) {
-    portEXIT_CRITICAL(&music_mux_);
-    return false;
-  }
-  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
-  music_commands_[tail].kind = MusicCommand::Kind::ToggleDrumSequence;
-  ++music_command_count_;
-  portEXIT_CRITICAL(&music_mux_);
-  return true;
+  return enqueue_music_command({MusicCommand::Kind::ToggleDrumSequence});
 }
 
 bool SpeakerOutput::toggle_drum_pause() {
-  if (!music_active()) return false;
-  portENTER_CRITICAL(&music_mux_);
-  if (music_command_count_ == kMusicCommandCapacity) {
-    portEXIT_CRITICAL(&music_mux_);
-    return false;
-  }
-  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
-  music_commands_[tail].kind = MusicCommand::Kind::ToggleDrumPause;
-  ++music_command_count_;
-  portEXIT_CRITICAL(&music_mux_);
-  return true;
+  return enqueue_music_command({MusicCommand::Kind::ToggleDrumPause});
 }
 
 bool SpeakerOutput::stop_drum_loop() {
-  if (!music_active()) return false;
-  portENTER_CRITICAL(&music_mux_);
-  if (music_command_count_ == kMusicCommandCapacity) {
-    portEXIT_CRITICAL(&music_mux_);
-    return false;
-  }
-  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
-  music_commands_[tail].kind = MusicCommand::Kind::StopDrumLoop;
-  ++music_command_count_;
-  portEXIT_CRITICAL(&music_mux_);
-  return true;
+  return enqueue_music_command({MusicCommand::Kind::StopDrumLoop});
 }
 
 bool SpeakerOutput::adjust_drum_tempo(int delta_bpm) {
-  if (!music_active() || delta_bpm == 0) return false;
-  portENTER_CRITICAL(&music_mux_);
-  if (music_command_count_ == kMusicCommandCapacity) {
-    portEXIT_CRITICAL(&music_mux_);
-    return false;
-  }
-  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
-  music_commands_[tail] = {MusicCommand::Kind::AdjustDrumTempo, 0U, false,
-                            false, ai_keyboard::DrumVoice::Click, 100,
-                            delta_bpm};
-  ++music_command_count_;
-  portEXIT_CRITICAL(&music_mux_);
-  return true;
+  if (delta_bpm == 0) return false;
+  return enqueue_music_command({MusicCommand::Kind::AdjustDrumTempo, 0U, false,
+                                ai_keyboard::DrumVoice::Click, 100, delta_bpm});
 }
 
 std::uint8_t SpeakerOutput::adjust_music_volume(int delta_percent) {
@@ -1473,16 +1421,13 @@ SpeakerOutput::WorkerResult SpeakerOutput::play_sound(
 void SpeakerOutput::consume_music_commands() {
   if (music_reset_pending_.exchange(false, std::memory_order_acq_rel)) {
     ai_keyboard::MusicConfig config;
-    bool pending_song_play = false;
     portENTER_CRITICAL(&music_mux_);
     config = music_config_;
-    pending_song_play = pending_music_sequence_ready_ &&
-                        pending_music_sequence_.command ==
-                            ai_keyboard::MusicSequenceCommand::Play;
     portEXIT_CRITICAL(&music_mux_);
     // 鼓机 K8 的内置曲目是一次性显式播放；临时打开合成器音符门闸，
     // 不改写 music_v1 持久配置，曲目结束后的下一会话仍按原设置恢复。
-    if (pending_song_play) config.enabled = true;
+    // 请求已在 consume_music_sequence 中取走，以 worker 已加载的曲目为准。
+    if (music_sequence_player_.playing()) config.enabled = true;
     music_synth_ = {};
     music_synth_.apply_config(config);
     // 新会话不能继承已取消的鼓机循环，否则切回钢琴会在无人触发时继续打点。

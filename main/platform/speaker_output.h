@@ -191,11 +191,11 @@ class SpeakerOutput {
     Kind kind = Kind::Note;
     std::uint8_t key_index = 0;
     bool pressed = false;
-    bool drum = false;
     ai_keyboard::DrumVoice drum_voice = ai_keyboard::DrumVoice::Click;
     std::uint8_t velocity_percent = 100;
     int tempo_delta_bpm = 0;
   };
+  bool enqueue_music_command(const MusicCommand& command);
   static constexpr std::size_t kMusicCommandCapacity = 16;
   ai_keyboard::MusicSynth music_synth_;
   ai_keyboard::DrumSequencer drum_sequencer_;

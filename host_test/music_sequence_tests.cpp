@@ -92,9 +92,60 @@ void pause_and_resume_keep_the_loaded_song() {
   assert(player.load(resume) && !player.paused());
 }
 
+void pause_releases_sound_and_resume_preserves_remaining_duration() {
+  // 暂停释放当前音符，恢复保持剩余时值而不是重放整拍。
+  ai_keyboard::MusicSequence song;
+  song.command = ai_keyboard::MusicSequenceCommand::Play;
+  song.event_count = 1;
+  song.events[0] = {0, 4, 100};
+  ai_keyboard::MusicSequencePlayer paused_player;
+  ai_keyboard::MusicSynth paused_synth;
+  ai_keyboard::MusicConfig pause_config;
+  pause_config.enabled = true;
+  assert(paused_synth.apply_config(pause_config));
+  assert(paused_player.load(song));
+  paused_player.advance(480, &paused_synth);
+  std::array<std::int16_t, 4800> pause_frame{};
+  paused_synth.render(pause_frame.data(), 480);
+  ai_keyboard::MusicSequence control;
+  control.command = ai_keyboard::MusicSequenceCommand::Pause;
+  assert(paused_player.load(control));
+  paused_player.advance(pause_frame.size(), &paused_synth);
+  paused_synth.render(pause_frame.data(), pause_frame.size());
+  assert(!paused_synth.active());
+  control.command = ai_keyboard::MusicSequenceCommand::Resume;
+  assert(paused_player.load(control));
+  paused_player.advance(480, &paused_synth);
+  assert(paused_synth.active());
+  paused_player.advance(23040, &paused_synth);
+  assert(!paused_player.playing());
+}
+
+void invalid_internal_sequences_preserve_the_loaded_song() {
+  // 内部调用也必须受固定数组容量约束，拒绝后保留原播放器状态。
+  ai_keyboard::MusicSequence invalid;
+  invalid.command = ai_keyboard::MusicSequenceCommand::Play;
+  invalid.event_count = ai_keyboard::kMusicSequenceStorageEvents + 1;
+  ai_keyboard::MusicSequencePlayer bounded;
+  assert(!bounded.load(invalid));
+  invalid.event_count = 1;
+  assert(bounded.load(invalid));
+  for (const auto bad_event : {
+           ai_keyboard::MusicSequenceEvent{8, 4, 100, 0},
+           ai_keyboard::MusicSequenceEvent{0, 0, 100, 0},
+           ai_keyboard::MusicSequenceEvent{0, 4, 101, 0},
+           ai_keyboard::MusicSequenceEvent{0, 4, 100, 2}}) {
+    invalid.events[0] = bad_event;
+    assert(!bounded.load(invalid));
+    assert(bounded.playing());
+  }
+}
+
 }  // namespace
 
 int main() {
+  pause_releases_sound_and_resume_preserves_remaining_duration();
+  invalid_internal_sequences_preserve_the_loaded_song();
   protocol_round_trip_and_player_progress();
   builtin_ode_to_joy_is_compact_and_playable();
   pause_and_resume_keep_the_loaded_song();

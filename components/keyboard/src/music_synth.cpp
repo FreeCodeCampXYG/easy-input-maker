@@ -36,6 +36,9 @@ const std::array<std::int8_t, kMusicKeyCount>& scale_offsets(MusicScale scale) {
 }  // namespace
 
 bool validate_music_config(const MusicConfig& config) {
+  // 未知枚举不能落入大调兜底，否则错误配置会被当成合法音阶保存。
+  if (static_cast<std::uint8_t>(config.scale) >
+      static_cast<std::uint8_t>(MusicScale::Custom)) return false;
   if (config.reference_a4_milli_hz < 400000 ||
       config.reference_a4_milli_hz > 480000 || config.root_midi < 0 ||
       config.transpose_semitones < -36 ||
@@ -83,9 +86,18 @@ std::uint32_t music_key_phase_increment(const MusicConfig& config, std::size_t k
   return static_cast<std::uint32_t>(std::llround(std::min(phase, 4294967295.0)));
 }
 
+MusicSynth::MusicSynth() {
+  apply_config(config_);
+}
+
 bool MusicSynth::apply_config(const MusicConfig& config) {
   if (!validate_music_config(config)) return false;
   config_ = config;
+  // 配置只由音频 owner 应用；缓存原整数步长，逐样本 PCM 舍入保持不变。
+  const auto attack_frames = std::max<std::uint32_t>(1, config.attack_ms * 48U);
+  const auto release_frames = std::max<std::uint32_t>(1, config.release_ms * 48U);
+  attack_step_ = 32767U / attack_frames + 1U;
+  release_step_ = std::max<std::uint32_t>(1, 32767U / release_frames);
   return true;
 }
 
@@ -98,7 +110,7 @@ bool MusicSynth::note_on(std::size_t key_index,
       octave_offset < -1 || octave_offset > 1) return false;
   Voice* selected = nullptr;
   for (auto& voice : voices_) {
-    if (voice.active && voice.key_index == key_index &&
+    if (voice.active && !voice.percussion && voice.key_index == key_index &&
         voice.octave_offset == octave_offset) {
       selected = &voice;
       break;
@@ -131,8 +143,9 @@ bool MusicSynth::note_on(std::size_t key_index,
 
 bool MusicSynth::note_off(std::size_t key_index, std::int8_t octave_offset) {
   bool changed = false;
+  // 鼓声共用 voice 池但不属于琴键，不能被默认 key_index=0 的松键截断。
   for (auto& voice : voices_) {
-    if (voice.active && voice.key_index == key_index &&
+    if (voice.active && !voice.percussion && voice.key_index == key_index &&
         voice.octave_offset == octave_offset) {
       voice.envelope = Envelope::Release;
       changed = true;
@@ -180,18 +193,15 @@ std::int32_t MusicSynth::waveform(const Voice& voice) const {
 
 void MusicSynth::advance_voice(Voice* voice) {
   if (voice == nullptr || !voice->active) return;
-  const std::uint32_t attack_frames = std::max<std::uint32_t>(1, config_.attack_ms * 48U);
-  const std::uint32_t release_frames = std::max<std::uint32_t>(1, config_.release_ms * 48U);
   if (voice->envelope == Envelope::Attack) {
-    voice->level_q15 = std::min<std::uint32_t>(32767, voice->level_q15 + 32767U / attack_frames + 1U);
+    voice->level_q15 = std::min<std::uint32_t>(32767, voice->level_q15 + attack_step_);
     if (voice->level_q15 >= 32767) voice->envelope = Envelope::Sustain;
   } else if (voice->envelope == Envelope::Release) {
-    const auto decrement = std::max<std::uint32_t>(1, 32767U / release_frames);
-    if (voice->level_q15 <= decrement) {
+    if (voice->level_q15 <= release_step_) {
       voice->active = false;
       return;
     }
-    voice->level_q15 -= decrement;
+    voice->level_q15 -= release_step_;
   }
   voice->phase += voice->increment;
   ++voice->age;
@@ -199,23 +209,21 @@ void MusicSynth::advance_voice(Voice* voice) {
 
 void MusicSynth::render(std::int16_t* samples, std::size_t sample_count) {
   if (samples == nullptr) return;
+  // BPM 沿用四分音符口径；6/8 的每个 click 应只占半拍。
   const std::uint64_t frames_per_beat =
-      std::max<std::uint64_t>(1, (static_cast<std::uint64_t>(kMusicSampleRate) * 60U) / config_.bpm);
+      std::max<std::uint64_t>(1, (static_cast<std::uint64_t>(kMusicSampleRate) * 60U * 4U) /
+                                   (config_.bpm * config_.beat_unit));
   for (std::size_t index = 0; index < sample_count; ++index) {
     std::int64_t mixed = 0;
-    std::size_t active_voice_count = 0;
     for (auto& voice : voices_) {
       if (!voice.active) continue;
-      ++active_voice_count;
       mixed += (static_cast<std::int64_t>(waveform(voice)) * voice.level_q15 *
                 voice.velocity_q15) / (32767LL * 32767LL);
       advance_voice(&voice);
     }
     // 固定按最大复音数留出余量，避免和弦相加后硬削波；固定分母也让
     // 加入/释放一个声部时响度不会突然跳变，保留失败时的可听数据。
-    if (active_voice_count != 0U) {
-      mixed /= static_cast<std::int64_t>(kMusicMaxVoices);
-    }
+    mixed /= static_cast<std::int64_t>(kMusicMaxVoices);
     if (config_.enabled && config_.metronome_enabled &&
         frame_clock_ >= next_beat_frame_) {
       metronome_tick_pending_ = true;

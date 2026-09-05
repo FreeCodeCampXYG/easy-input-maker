@@ -12,8 +12,16 @@ bool MusicSequencePlayer::load(const MusicSequence& sequence) {
     return true;
   }
   if (sequence.command != MusicSequenceCommand::Play || sequence.event_count == 0 ||
+      sequence.event_count > sequence.events.size() ||
       sequence.bpm < 20 || sequence.bpm > 300) {
     return false;
+  }
+  // 内置曲目绕过 wire 解码；先完整校验再替换，失败时保留当前曲目。
+  for (std::size_t index = 0; index < sequence.event_count; ++index) {
+    const auto& event = sequence.events[index];
+    if ((event.degree != kMusicSequenceRest && event.degree >= kMusicKeyCount) ||
+        event.duration_sixteenths == 0 || event.velocity_percent > 100 ||
+        event.octave_offset < -1 || event.octave_offset > 1) return false;
   }
   sequence_ = sequence;
   event_index_ = 0;
@@ -21,6 +29,7 @@ bool MusicSequencePlayer::load(const MusicSequence& sequence) {
   frame_remainder_ = 0;
   playing_ = true;
   paused_ = false;
+  paused_note_released_ = false;
   return true;
 }
 
@@ -32,11 +41,30 @@ void MusicSequencePlayer::stop(MusicSynth* synth) {
   }
   playing_ = false;
   paused_ = false;
+  paused_note_released_ = false;
   event_frames_remaining_ = 0;
 }
 
 void MusicSequencePlayer::advance(std::size_t sample_count, MusicSynth* synth) {
-  if (!playing_ || paused_ || synth == nullptr) return;
+  if (!playing_ || synth == nullptr) return;
+  // 暂停保留事件与剩余时值，但必须释放持续音；仅由音频 owner 操作声部。
+  if (paused_) {
+    if (!paused_note_released_ && event_frames_remaining_ != 0U) {
+      const auto& event = sequence_.events[event_index_];
+      if (event.degree != kMusicSequenceRest) {
+        synth->note_off(event.degree, event.octave_offset);
+      }
+      paused_note_released_ = true;
+    }
+    return;
+  }
+  if (paused_note_released_) {
+    const auto& event = sequence_.events[event_index_];
+    if (event.degree != kMusicSequenceRest) {
+      synth->note_on(event.degree, event.velocity_percent, event.octave_offset);
+    }
+    paused_note_released_ = false;
+  }
   const auto frames_per_sixteenth_num =
       static_cast<std::uint64_t>(kMusicSampleRate) * 60U;
   const auto frames_per_sixteenth_den = static_cast<std::uint64_t>(sequence_.bpm) * 4U;

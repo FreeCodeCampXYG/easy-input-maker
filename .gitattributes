@@ -1,0 +1,2 @@
+# Git 补丁的空白上下文行以空格开头；保留其语法及冻结快照哈希。
+docs/review/session-2026-09-06/code-changes.patch whitespace=-blank-at-eol

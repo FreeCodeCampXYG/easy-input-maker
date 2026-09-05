@@ -1,0 +1,761 @@
+diff --git a/components/keyboard/include/keyboard/music_sequence_player.h b/components/keyboard/include/keyboard/music_sequence_player.h
+index cacdaaf2112cbe603861b8fd33c2e77e9fe309c6..9b40add84830c27d6974c9f363da10c1ffa31e8e 100644
+--- a/components/keyboard/include/keyboard/music_sequence_player.h
++++ b/components/keyboard/include/keyboard/music_sequence_player.h
+@@ -23,6 +23,7 @@ class MusicSequencePlayer {
+   std::uint64_t frame_remainder_ = 0;
+   bool playing_ = false;
+   bool paused_ = false;
++  bool paused_note_released_ = false;
+ };
+ 
+ }  // namespace ai_keyboard
+diff --git a/components/keyboard/include/keyboard/music_synth.h b/components/keyboard/include/keyboard/music_synth.h
+index 13828505c444545c099c899da7252010aa3a8d5a..e0e5fe8757291e5eacc39677425e44a02f7fa669 100644
+--- a/components/keyboard/include/keyboard/music_synth.h
++++ b/components/keyboard/include/keyboard/music_synth.h
+@@ -38,6 +38,7 @@ struct MusicConfig {
+ // MusicSynth 只保存离线可测的合成状态；平台层负责 I2S、GPIO8 和仲裁。
+ class MusicSynth {
+  public:
++  MusicSynth();
+   bool apply_config(const MusicConfig& config);
+   const MusicConfig& config() const;
+   bool note_on(std::size_t key_index,
+@@ -72,6 +73,8 @@ class MusicSynth {
+   void advance_voice(Voice* voice);
+ 
+   MusicConfig config_{};
++  std::uint32_t attack_step_ = 1;
++  std::uint32_t release_step_ = 1;
+   std::array<Voice, kMusicMaxVoices> voices_{};
+   std::uint64_t frame_clock_ = 0;
+   std::uint64_t next_beat_frame_ = 0;
+diff --git a/components/keyboard/src/drum_sequencer.cpp b/components/keyboard/src/drum_sequencer.cpp
+index b91202f66140bcd3ebac16f512bb1b04fb2a995f..72c86ece4d6d8632ed0b1207e828235a314896a9 100644
+--- a/components/keyboard/src/drum_sequencer.cpp
++++ b/components/keyboard/src/drum_sequencer.cpp
+@@ -85,39 +85,48 @@ std::optional<DrumVoice> DrumSequencer::advance(std::size_t sample_count) {
+     return std::nullopt;
+   }
+ 
+-  const auto beat_divisor =
+-      !sequential_enabled_ && pattern_ == DrumBeatPattern::BeatSixEight ? 2U : 1U;
+-  const auto step_denominator = static_cast<std::uint32_t>(bpm_) * beat_divisor;
+-  const auto duration_num = static_cast<std::uint64_t>(kMusicSampleRate) * 60U +
+-                            frame_remainder_;
+-  frames_until_next_ = static_cast<std::uint32_t>(duration_num / step_denominator);
+-  frame_remainder_ = static_cast<std::uint32_t>(duration_num % step_denominator);
+-  if (frames_until_next_ == 0U) frames_until_next_ = 1U;
+-
++  // 保留跨帧余量，避免每拍丢掉不足一帧的时间而持续变慢。
++  auto remaining = sample_count - frames_until_next_;
+   DrumVoice voice = DrumVoice::Click;
+-  if (sequential_enabled_) {
+-    voice = kSequential[step_index_ % kSequential.size()];
+-    step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kSequential.size());
+-  } else {
+-    switch (pattern_) {
+-      case DrumBeatPattern::BeatFour:
+-        voice = kFourFour[step_index_ % kFourFour.size()];
+-        step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kFourFour.size());
+-        break;
+-      case DrumBeatPattern::BeatThree:
+-        voice = kThreeFour[step_index_ % kThreeFour.size()];
+-        step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kThreeFour.size());
+-        break;
+-      case DrumBeatPattern::BeatSixEight:
+-        voice = kSixEight[step_index_ % kSixEight.size()];
+-        step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kSixEight.size());
+-        break;
+-      case DrumBeatPattern::BeatTwo:
+-        voice = kTwoFour[step_index_ % kTwoFour.size()];
+-        step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kTwoFour.size());
+-        break;
++  do {
++    const auto beat_divisor =
++        !sequential_enabled_ && pattern_ == DrumBeatPattern::BeatSixEight ? 2U : 1U;
++    const auto step_denominator = static_cast<std::uint32_t>(bpm_) * beat_divisor;
++    const auto duration_num = static_cast<std::uint64_t>(kMusicSampleRate) * 60U +
++                              frame_remainder_;
++    frames_until_next_ = static_cast<std::uint32_t>(duration_num / step_denominator);
++    frame_remainder_ = static_cast<std::uint32_t>(duration_num % step_denominator);
++    if (frames_until_next_ == 0U) frames_until_next_ = 1U;
++
++    if (sequential_enabled_) {
++      voice = kSequential[step_index_ % kSequential.size()];
++      step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kSequential.size());
++    } else {
++      switch (pattern_) {
++        case DrumBeatPattern::BeatFour:
++          voice = kFourFour[step_index_ % kFourFour.size()];
++          step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kFourFour.size());
++          break;
++        case DrumBeatPattern::BeatThree:
++          voice = kThreeFour[step_index_ % kThreeFour.size()];
++          step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kThreeFour.size());
++          break;
++        case DrumBeatPattern::BeatSixEight:
++          voice = kSixEight[step_index_ % kSixEight.size()];
++          step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kSixEight.size());
++          break;
++        case DrumBeatPattern::BeatTwo:
++          voice = kTwoFour[step_index_ % kTwoFour.size()];
++          step_index_ = static_cast<std::uint8_t>((step_index_ + 1U) % kTwoFour.size());
++          break;
++      }
+     }
+-  }
++    if (remaining < frames_until_next_) {
++      frames_until_next_ -= static_cast<std::uint32_t>(remaining);
++      break;
++    }
++    remaining -= frames_until_next_;
++  } while (true);
+   return voice;
+ }
+ 
+diff --git a/components/keyboard/src/music_sequence_player.cpp b/components/keyboard/src/music_sequence_player.cpp
+index 423c172a9585c8f01968e752e9e0e1ae6975a59d..d88569a8aea595801d95d40d58cccb7b2201d8fd 100644
+--- a/components/keyboard/src/music_sequence_player.cpp
++++ b/components/keyboard/src/music_sequence_player.cpp
+@@ -12,15 +12,24 @@ bool MusicSequencePlayer::load(const MusicSequence& sequence) {
+     return true;
+   }
+   if (sequence.command != MusicSequenceCommand::Play || sequence.event_count == 0 ||
++      sequence.event_count > sequence.events.size() ||
+       sequence.bpm < 20 || sequence.bpm > 300) {
+     return false;
+   }
++  // 内置曲目绕过 wire 解码；先完整校验再替换，失败时保留当前曲目。
++  for (std::size_t index = 0; index < sequence.event_count; ++index) {
++    const auto& event = sequence.events[index];
++    if ((event.degree != kMusicSequenceRest && event.degree >= kMusicKeyCount) ||
++        event.duration_sixteenths == 0 || event.velocity_percent > 100 ||
++        event.octave_offset < -1 || event.octave_offset > 1) return false;
++  }
+   sequence_ = sequence;
+   event_index_ = 0;
+   event_frames_remaining_ = 0;
+   frame_remainder_ = 0;
+   playing_ = true;
+   paused_ = false;
++  paused_note_released_ = false;
+   return true;
+ }
+ 
+@@ -32,11 +41,30 @@ void MusicSequencePlayer::stop(MusicSynth* synth) {
+   }
+   playing_ = false;
+   paused_ = false;
++  paused_note_released_ = false;
+   event_frames_remaining_ = 0;
+ }
+ 
+ void MusicSequencePlayer::advance(std::size_t sample_count, MusicSynth* synth) {
+-  if (!playing_ || paused_ || synth == nullptr) return;
++  if (!playing_ || synth == nullptr) return;
++  // 暂停保留事件与剩余时值，但必须释放持续音；仅由音频 owner 操作声部。
++  if (paused_) {
++    if (!paused_note_released_ && event_frames_remaining_ != 0U) {
++      const auto& event = sequence_.events[event_index_];
++      if (event.degree != kMusicSequenceRest) {
++        synth->note_off(event.degree, event.octave_offset);
++      }
++      paused_note_released_ = true;
++    }
++    return;
++  }
++  if (paused_note_released_) {
++    const auto& event = sequence_.events[event_index_];
++    if (event.degree != kMusicSequenceRest) {
++      synth->note_on(event.degree, event.velocity_percent, event.octave_offset);
++    }
++    paused_note_released_ = false;
++  }
+   const auto frames_per_sixteenth_num =
+       static_cast<std::uint64_t>(kMusicSampleRate) * 60U;
+   const auto frames_per_sixteenth_den = static_cast<std::uint64_t>(sequence_.bpm) * 4U;
+diff --git a/components/keyboard/src/music_synth.cpp b/components/keyboard/src/music_synth.cpp
+index d56a6d8d46b289914ecb2d76519bafa3630ad8bb..6a9d9ba07e8fa883dc1fdd0cca591a7007a2f9d6 100644
+--- a/components/keyboard/src/music_synth.cpp
++++ b/components/keyboard/src/music_synth.cpp
+@@ -36,6 +36,9 @@ const std::array<std::int8_t, kMusicKeyCount>& scale_offsets(MusicScale scale) {
+ }  // namespace
+ 
+ bool validate_music_config(const MusicConfig& config) {
++  // 未知枚举不能落入大调兜底，否则错误配置会被当成合法音阶保存。
++  if (static_cast<std::uint8_t>(config.scale) >
++      static_cast<std::uint8_t>(MusicScale::Custom)) return false;
+   if (config.reference_a4_milli_hz < 400000 ||
+       config.reference_a4_milli_hz > 480000 || config.root_midi < 0 ||
+       config.transpose_semitones < -36 ||
+@@ -83,9 +86,18 @@ std::uint32_t music_key_phase_increment(const MusicConfig& config, std::size_t k
+   return static_cast<std::uint32_t>(std::llround(std::min(phase, 4294967295.0)));
+ }
+ 
++MusicSynth::MusicSynth() {
++  apply_config(config_);
++}
++
+ bool MusicSynth::apply_config(const MusicConfig& config) {
+   if (!validate_music_config(config)) return false;
+   config_ = config;
++  // 配置只由音频 owner 应用；缓存原整数步长，逐样本 PCM 舍入保持不变。
++  const auto attack_frames = std::max<std::uint32_t>(1, config.attack_ms * 48U);
++  const auto release_frames = std::max<std::uint32_t>(1, config.release_ms * 48U);
++  attack_step_ = 32767U / attack_frames + 1U;
++  release_step_ = std::max<std::uint32_t>(1, 32767U / release_frames);
+   return true;
+ }
+ 
+@@ -98,7 +110,7 @@ bool MusicSynth::note_on(std::size_t key_index,
+       octave_offset < -1 || octave_offset > 1) return false;
+   Voice* selected = nullptr;
+   for (auto& voice : voices_) {
+-    if (voice.active && voice.key_index == key_index &&
++    if (voice.active && !voice.percussion && voice.key_index == key_index &&
+         voice.octave_offset == octave_offset) {
+       selected = &voice;
+       break;
+@@ -131,8 +143,9 @@ bool MusicSynth::note_on(std::size_t key_index,
+ 
+ bool MusicSynth::note_off(std::size_t key_index, std::int8_t octave_offset) {
+   bool changed = false;
++  // 鼓声共用 voice 池但不属于琴键，不能被默认 key_index=0 的松键截断。
+   for (auto& voice : voices_) {
+-    if (voice.active && voice.key_index == key_index &&
++    if (voice.active && !voice.percussion && voice.key_index == key_index &&
+         voice.octave_offset == octave_offset) {
+       voice.envelope = Envelope::Release;
+       changed = true;
+@@ -180,18 +193,15 @@ std::int32_t MusicSynth::waveform(const Voice& voice) const {
+ 
+ void MusicSynth::advance_voice(Voice* voice) {
+   if (voice == nullptr || !voice->active) return;
+-  const std::uint32_t attack_frames = std::max<std::uint32_t>(1, config_.attack_ms * 48U);
+-  const std::uint32_t release_frames = std::max<std::uint32_t>(1, config_.release_ms * 48U);
+   if (voice->envelope == Envelope::Attack) {
+-    voice->level_q15 = std::min<std::uint32_t>(32767, voice->level_q15 + 32767U / attack_frames + 1U);
++    voice->level_q15 = std::min<std::uint32_t>(32767, voice->level_q15 + attack_step_);
+     if (voice->level_q15 >= 32767) voice->envelope = Envelope::Sustain;
+   } else if (voice->envelope == Envelope::Release) {
+-    const auto decrement = std::max<std::uint32_t>(1, 32767U / release_frames);
+-    if (voice->level_q15 <= decrement) {
++    if (voice->level_q15 <= release_step_) {
+       voice->active = false;
+       return;
+     }
+-    voice->level_q15 -= decrement;
++    voice->level_q15 -= release_step_;
+   }
+   voice->phase += voice->increment;
+   ++voice->age;
+@@ -199,23 +209,21 @@ void MusicSynth::advance_voice(Voice* voice) {
+ 
+ void MusicSynth::render(std::int16_t* samples, std::size_t sample_count) {
+   if (samples == nullptr) return;
++  // BPM 沿用四分音符口径；6/8 的每个 click 应只占半拍。
+   const std::uint64_t frames_per_beat =
+-      std::max<std::uint64_t>(1, (static_cast<std::uint64_t>(kMusicSampleRate) * 60U) / config_.bpm);
++      std::max<std::uint64_t>(1, (static_cast<std::uint64_t>(kMusicSampleRate) * 60U * 4U) /
++                                   (config_.bpm * config_.beat_unit));
+   for (std::size_t index = 0; index < sample_count; ++index) {
+     std::int64_t mixed = 0;
+-    std::size_t active_voice_count = 0;
+     for (auto& voice : voices_) {
+       if (!voice.active) continue;
+-      ++active_voice_count;
+       mixed += (static_cast<std::int64_t>(waveform(voice)) * voice.level_q15 *
+                 voice.velocity_q15) / (32767LL * 32767LL);
+       advance_voice(&voice);
+     }
+     // 固定按最大复音数留出余量，避免和弦相加后硬削波；固定分母也让
+     // 加入/释放一个声部时响度不会突然跳变，保留失败时的可听数据。
+-    if (active_voice_count != 0U) {
+-      mixed /= static_cast<std::int64_t>(kMusicMaxVoices);
+-    }
++    mixed /= static_cast<std::int64_t>(kMusicMaxVoices);
+     if (config_.enabled && config_.metronome_enabled &&
+         frame_clock_ >= next_beat_frame_) {
+       metronome_tick_pending_ = true;
+diff --git a/host_test/drum_sequencer_tests.cpp b/host_test/drum_sequencer_tests.cpp
+index 43889d179f4506f684dd9aa29247294974a639e6..e5e43556813cd616be795579ebfca10cd943d243 100644
+--- a/host_test/drum_sequencer_tests.cpp
++++ b/host_test/drum_sequencer_tests.cpp
+@@ -57,9 +57,29 @@ void pause_and_tempo_are_bounded() {
+   assert(sequencer.bpm() == 20);
+ }
+ 
++void frame_partition_does_not_accumulate_tempo_drift() {
++  // 相同音频时长不能因 worker 分帧大小不同而累计丢拍。
++  ai_keyboard::DrumSequencer single, blocked;
++  single.adjust_bpm(17);
++  blocked.adjust_bpm(17);
++  single.toggle_sequential();
++  blocked.toggle_sequential();
++  int single_ticks = single.advance(0).has_value();
++  int blocked_ticks = blocked.advance(0).has_value();
++  for (std::size_t frame = 0; frame < 48000U * 60U; ++frame) {
++    single_ticks += single.advance(1).has_value();
++  }
++  for (std::size_t frame = 0; frame < 48000U * 60U; frame += 480) {
++    blocked_ticks += blocked.advance(480).has_value();
++  }
++  assert(single_ticks == 138);
++  assert(blocked_ticks == single_ticks);
++}
++
+ }  // namespace
+ 
+ int main() {
++  frame_partition_does_not_accumulate_tempo_drift();
+   beat_key_cycles_conventional_meters();
+   six_eight_uses_eighth_note_steps();
+   sequential_mode_repeats_all_four_drum_voices();
+diff --git a/host_test/firmware_source_contract_tests.cpp b/host_test/firmware_source_contract_tests.cpp
+index b88bf0111a2bad69bf3096c888a461c0e1de373a..5c22cb8fec486f8e916d446b63d90670a3674fa1 100644
+--- a/host_test/firmware_source_contract_tests.cpp
++++ b/host_test/firmware_source_contract_tests.cpp
+@@ -3722,9 +3722,26 @@ void active_music_slots_never_fall_back_to_host_actions() {
+   assert(guard.find("return true;") != std::string::npos);
+ }
+ 
++void music_controls_preserve_slot_ownership_and_persistence_ack() {
++  const auto music_volume = section(
++      read_source("main/app_main.cpp"),
++      "bool dispatch_music_volume(AppContext* app,",
++      "bool handle_input_event(const easy_input::InputEvent& event, void* context)");
++  // 音频入队失败也必须消费音乐槽旋钮，不能把失败当成原版滚动请求。
++  assert(music_volume.find("return app->speaker.adjust_drum_tempo") == std::string::npos);
++  const auto song_apply = section(
++      read_source("main/app_main.cpp"),
++      "void apply_pending_music_sequence(AppContext* app)",
++      "void apply_pending_config(AppContext* app)");
++  assert(song_apply.find("0U, applied, endpoint_epoch") == std::string::npos);
++  assert(song_apply.find("saved = app->config_store.save_song") != std::string::npos);
++  assert(song_apply.find("0U, saved, endpoint_epoch") != std::string::npos);
++}
++
+ }  // namespace
+ 
+ int main() {
++  music_controls_preserve_slot_ownership_and_persistence_ack();
+   usb_async_work_is_durable_before_owner_notification();
+   power_telemetry_reports_awake_and_real_deep_sleep_facts_only();
+   battery_update_releases_hidd_lock_before_entering_nimble();
+diff --git a/host_test/music_config_protocol_tests.cpp b/host_test/music_config_protocol_tests.cpp
+index c7bce3930a18ddb5210f561d8c511a79c4e3adcf..8be90c17e93698a5a9ae8e2977d353164df14a76 100644
+--- a/host_test/music_config_protocol_tests.cpp
++++ b/host_test/music_config_protocol_tests.cpp
+@@ -43,9 +43,23 @@ void invalid_magic_version_and_reserved_flags_fail_closed() {
+   assert(!ai_keyboard::decode_music_config(payload.data(), payload.size()).has_value());
+ }
+ 
++void invalid_scale_does_not_fall_back_to_major() {
++  // 未知调式不能静默变成大调并被持久化。
++  ai_keyboard::MusicConfig invalid;
++  std::array<std::uint8_t, ai_keyboard::kMusicConfigPayloadLen> payload{};
++  assert(ai_keyboard::encode_music_config(invalid, &payload));
++  payload[8] = 255;
++  assert(!ai_keyboard::decode_music_config(payload.data(), payload.size()));
++  invalid.scale = static_cast<ai_keyboard::MusicScale>(255);
++  ai_keyboard::MusicSynth synth;
++  assert(!synth.apply_config(invalid));
++  assert(synth.config().scale == ai_keyboard::MusicScale::Major);
++}
++
+ }  // namespace
+ 
+ int main() {
++  invalid_scale_does_not_fall_back_to_major();
+   round_trip_preserves_all_public_controls();
+   invalid_magic_version_and_reserved_flags_fail_closed();
+   return 0;
+diff --git a/host_test/music_sequence_tests.cpp b/host_test/music_sequence_tests.cpp
+index f37dbabd7f3a70667c59bdb58c9ce4a71dcf7903..e7de3dd8f7e9b1d8776babfd8441dc2e79106719 100644
+--- a/host_test/music_sequence_tests.cpp
++++ b/host_test/music_sequence_tests.cpp
+@@ -92,9 +92,60 @@ void pause_and_resume_keep_the_loaded_song() {
+   assert(player.load(resume) && !player.paused());
+ }
+ 
++void pause_releases_sound_and_resume_preserves_remaining_duration() {
++  // 暂停释放当前音符，恢复保持剩余时值而不是重放整拍。
++  ai_keyboard::MusicSequence song;
++  song.command = ai_keyboard::MusicSequenceCommand::Play;
++  song.event_count = 1;
++  song.events[0] = {0, 4, 100};
++  ai_keyboard::MusicSequencePlayer paused_player;
++  ai_keyboard::MusicSynth paused_synth;
++  ai_keyboard::MusicConfig pause_config;
++  pause_config.enabled = true;
++  assert(paused_synth.apply_config(pause_config));
++  assert(paused_player.load(song));
++  paused_player.advance(480, &paused_synth);
++  std::array<std::int16_t, 4800> pause_frame{};
++  paused_synth.render(pause_frame.data(), 480);
++  ai_keyboard::MusicSequence control;
++  control.command = ai_keyboard::MusicSequenceCommand::Pause;
++  assert(paused_player.load(control));
++  paused_player.advance(pause_frame.size(), &paused_synth);
++  paused_synth.render(pause_frame.data(), pause_frame.size());
++  assert(!paused_synth.active());
++  control.command = ai_keyboard::MusicSequenceCommand::Resume;
++  assert(paused_player.load(control));
++  paused_player.advance(480, &paused_synth);
++  assert(paused_synth.active());
++  paused_player.advance(23040, &paused_synth);
++  assert(!paused_player.playing());
++}
++
++void invalid_internal_sequences_preserve_the_loaded_song() {
++  // 内部调用也必须受固定数组容量约束，拒绝后保留原播放器状态。
++  ai_keyboard::MusicSequence invalid;
++  invalid.command = ai_keyboard::MusicSequenceCommand::Play;
++  invalid.event_count = ai_keyboard::kMusicSequenceStorageEvents + 1;
++  ai_keyboard::MusicSequencePlayer bounded;
++  assert(!bounded.load(invalid));
++  invalid.event_count = 1;
++  assert(bounded.load(invalid));
++  for (const auto bad_event : {
++           ai_keyboard::MusicSequenceEvent{8, 4, 100, 0},
++           ai_keyboard::MusicSequenceEvent{0, 0, 100, 0},
++           ai_keyboard::MusicSequenceEvent{0, 4, 101, 0},
++           ai_keyboard::MusicSequenceEvent{0, 4, 100, 2}}) {
++    invalid.events[0] = bad_event;
++    assert(!bounded.load(invalid));
++    assert(bounded.playing());
++  }
++}
++
+ }  // namespace
+ 
+ int main() {
++  pause_releases_sound_and_resume_preserves_remaining_duration();
++  invalid_internal_sequences_preserve_the_loaded_song();
+   protocol_round_trip_and_player_progress();
+   builtin_ode_to_joy_is_compact_and_playable();
+   pause_and_resume_keep_the_loaded_song();
+diff --git a/host_test/music_synth_tests.cpp b/host_test/music_synth_tests.cpp
+index 9fa4f11c13b3ccb8b6913b2056fcf163813689bf..8b04f2f6a27512d572320218e94c911df758ac68 100644
+--- a/host_test/music_synth_tests.cpp
++++ b/host_test/music_synth_tests.cpp
+@@ -6,6 +6,43 @@
+ 
+ namespace {
+ 
++void envelope_cache_preserves_pcm_fingerprints() {
++  // 优化前录下的 PCM 指纹：四种音色、八键复音、播放中改配置和长尾音。
++  constexpr std::array<std::uint64_t, 8> expected{{
++      5344675918021175315ULL, 9527039558125785837ULL,
++      6235575889531046513ULL, 11861811407602363855ULL,
++      3608587429469577061ULL, 686405771077223468ULL,
++      8248977947322849955ULL, 4742436947417588223ULL}};
++  for (unsigned scenario = 0; scenario < expected.size(); ++scenario) {
++    ai_keyboard::MusicConfig config;
++    config.enabled = true;
++    config.attack_ms = scenario * 17;
++    config.release_ms = scenario * 31;
++    config.timbres.fill(static_cast<ai_keyboard::MusicTimbre>(scenario % 4));
++    ai_keyboard::MusicSynth synth;
++    assert(synth.apply_config(config));
++    for (unsigned key = 0; key < 8; ++key) assert(synth.note_on(key, 30 + key * 10));
++    std::array<std::int16_t, 480> pcm{};
++    std::uint64_t hash = 14695981039346656037ULL;
++    for (unsigned frame = 0; frame < 200; ++frame) {
++      if (frame == 50) {
++        config.attack_ms = 2000;
++        config.release_ms = 4000;
++        assert(synth.apply_config(config));
++      }
++      if (frame == 100) {
++        for (unsigned key = 0; key < 8; ++key) assert(synth.note_off(key));
++      }
++      synth.render(pcm.data(), pcm.size());
++      for (const auto sample : pcm) {
++        hash ^= static_cast<std::uint16_t>(sample);
++        hash *= 1099511628211ULL;
++      }
++    }
++    assert(hash == expected[scenario]);
++  }
++}
++
+ void defaults_are_c_major_from_c4_to_c5() {
+   ai_keyboard::MusicConfig config;
+   assert(std::abs(ai_keyboard::music_key_frequency_hz(config, 0) - 261.625565) < 0.001);
+@@ -134,9 +171,53 @@ void drum_voices_render_and_decay() {
+   assert(!synth.active());
+ }
+ 
++void six_eight_clicks_use_eighth_notes() {
++  ai_keyboard::MusicConfig meter_config;
++  meter_config.enabled = true;
++  meter_config.metronome_enabled = true;
++  meter_config.beats_per_bar = 6;
++  meter_config.beat_unit = 8;
++  ai_keyboard::MusicSynth meter;
++  assert(meter.apply_config(meter_config));
++  std::array<std::int16_t, 1> tick{};
++  meter.render(tick.data(), 1);
++  assert(meter.take_metronome_tick(nullptr));
++  for (int frame = 0; frame < 12000; ++frame) meter.render(tick.data(), 1);
++  assert(meter.take_metronome_tick(nullptr));
++}
++
++void piano_keys_do_not_reuse_percussion_voices() {
++  // 钢琴松键不能释放或冒认仍在衰减的鼓声声部。
++  ai_keyboard::MusicSynth mixed;
++  ai_keyboard::MusicConfig mixed_config;
++  mixed_config.enabled = true;
++  assert(mixed.apply_config(mixed_config));
++  assert(mixed.trigger_drum(ai_keyboard::DrumVoice::Kick));
++  assert(!mixed.note_off(0));
++  assert(mixed.note_on(0));
++  assert(mixed.note_off(0));
++  // 新音符必须占用独立 voice；分别渲染再相加与同池混音仅差整数舍入。
++  ai_keyboard::MusicSynth drum_only, note_only;
++  assert(drum_only.apply_config(mixed_config));
++  assert(note_only.apply_config(mixed_config));
++  assert(drum_only.trigger_drum(ai_keyboard::DrumVoice::Kick));
++  assert(note_only.note_on(0));
++  assert(note_only.note_off(0));
++  std::array<std::int16_t, 128> combined{}, drums{}, notes{};
++  mixed.render(combined.data(), combined.size());
++  drum_only.render(drums.data(), drums.size());
++  note_only.render(notes.data(), notes.size());
++  for (std::size_t i = 0; i < combined.size(); ++i) {
++    assert(std::abs(static_cast<int>(combined[i]) - drums[i] - notes[i]) <= 1);
++  }
++}
++
+ }  // namespace
+ 
+ int main() {
++  envelope_cache_preserves_pcm_fingerprints();
++  six_eight_clicks_use_eighth_notes();
++  piano_keys_do_not_reuse_percussion_voices();
+   defaults_are_c_major_from_c4_to_c5();
+   octave_and_cents_follow_equal_temperament();
+   scale_selection_and_phase_increment_are_valid();
+diff --git a/main/app_main.cpp b/main/app_main.cpp
+index 01fc111c82da5149d1250b0cbeaf33532a682bc2..ba2031d6915cef59712bd9bbe6f34d772b4553a9 100644
+--- a/main/app_main.cpp
++++ b/main/app_main.cpp
+@@ -3025,8 +3025,12 @@ bool dispatch_music_volume(AppContext* app,
+   // 避免把钢琴/曲目音量控制泄漏到其他鼓机功能。
+   if (app->drum_mode_enabled && !app->speaker.music_sequence_active()) {
+     constexpr int kDrumTempoPerDetent = 5;
+-    return app->speaker.adjust_drum_tempo(
+-        event.encoder_step * kDrumTempoPerDetent);
++    // 槽位拥有输入，音频会话空闲或队列满也不能回退为电脑滚动/光标动作。
++    if (!app->speaker.adjust_drum_tempo(
++            event.encoder_step * kDrumTempoPerDetent)) {
++      ESP_LOGW(kTag, "鼓机调速未入队，当前槽位已消费旋钮输入");
++    }
++    return true;
+   }
+   const auto volume = app->speaker.adjust_music_volume(
+       event.encoder_step * kMusicVolumePercentPerDetent);
+@@ -3341,15 +3345,21 @@ void apply_pending_music_sequence(AppContext* app) {
+     }
+     sequence = *builtin;
+   }
++  // 播放入队与 NVS 落盘是不同结果；控制命令和不可编码曲目不能回报 saved=true。
++  bool saved = false;
+   if (persist_song && ai_keyboard::encode_music_sequence(sequence, &song_payload)) {
+     esp_err_t save_err = ESP_OK;
+-    if (!app->config_store.save_song(song_payload, &save_err)) {
++    saved = app->config_store.save_song(song_payload, &save_err);
++    if (!saved) {
+       ESP_LOGW(kTag, "MUSIC_SEQUENCE song_v1 save failed: %s", esp_err_to_name(save_err));
+     }
+   }
+   if (!app->speaker.ready() &&
+       (!app->speaker.shutdown_complete() ||
+        app->speaker.begin(app->platform_task, &app->audio_io_arbiter) != ESP_OK)) {
++    app->usb.send_config_ack_for_epoch(
++        0x17, false, static_cast<std::uint16_t>(ai_keyboard::kMusicSequencePayloadLen),
++        0U, saved, endpoint_epoch);
+     return;
+   }
+   const bool control_only = sequence.command == ai_keyboard::MusicSequenceCommand::Pause ||
+@@ -3359,7 +3369,7 @@ void apply_pending_music_sequence(AppContext* app) {
+                         app->speaker.request_music());
+   app->usb.send_config_ack_for_epoch(
+       0x17, applied, static_cast<std::uint16_t>(ai_keyboard::kMusicSequencePayloadLen),
+-      0U, applied, endpoint_epoch);
++      0U, saved, endpoint_epoch);
+   if (!applied) ESP_LOGW(kTag, "MUSIC_SEQUENCE apply rejected");
+ }
+ #endif
+diff --git a/main/platform/speaker_output.cpp b/main/platform/speaker_output.cpp
+index e3a22cdf9a14750474708bb5a010f4cacd37e263..f887992c186278fe111390157663e696f042ed5b 100644
+--- a/main/platform/speaker_output.cpp
++++ b/main/platform/speaker_output.cpp
+@@ -582,109 +582,57 @@ bool SpeakerOutput::queue_music_note(std::size_t key_index, bool pressed) {
+       break;
+     }
+   }
+-  portENTER_CRITICAL(&music_mux_);
+-  if (music_command_count_ == kMusicCommandCapacity) {
+-    portEXIT_CRITICAL(&music_mux_);
++  if (!enqueue_music_command({
++          MusicCommand::Kind::Note, static_cast<std::uint8_t>(key_index), pressed,
++          ai_keyboard::DrumVoice::Click, 100, 0})) {
+     // release 不能因瞬时队列压力丢失；音频任务会在下一帧按最终键状态补齐。
+     music_resync_pending_.store(true, std::memory_order_release);
+     return true;
+   }
+-  const auto tail = (music_command_head_ + music_command_count_) %
+-                    kMusicCommandCapacity;
+-  music_commands_[tail] = {
+-      MusicCommand::Kind::Note, static_cast<std::uint8_t>(key_index), pressed,
+-      false, ai_keyboard::DrumVoice::Click, 100, 0};
+-  ++music_command_count_;
+-  portEXIT_CRITICAL(&music_mux_);
+   return true;
+ }
+ 
+-bool SpeakerOutput::queue_drum_hit(ai_keyboard::DrumVoice drum,
+-                                   std::uint8_t velocity_percent) {
++bool SpeakerOutput::enqueue_music_command(const MusicCommand& command) {
+   if (!music_active()) return false;
++  // 所有命令共用同一临界区和容量门闸；满队列不覆盖旧命令，Note 调用方保留松键补偿。
+   portENTER_CRITICAL(&music_mux_);
+   if (music_command_count_ == kMusicCommandCapacity) {
+     portEXIT_CRITICAL(&music_mux_);
+     return false;
+   }
+   const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+-  music_commands_[tail] = {MusicCommand::Kind::DrumHit, 0U, true, true, drum,
+-                            velocity_percent, 0};
++  music_commands_[tail] = command;
+   ++music_command_count_;
+   portEXIT_CRITICAL(&music_mux_);
+   return true;
+ }
+ 
++bool SpeakerOutput::queue_drum_hit(ai_keyboard::DrumVoice drum,
++                                   std::uint8_t velocity_percent) {
++  return enqueue_music_command({MusicCommand::Kind::DrumHit, 0U, true, drum,
++                                velocity_percent, 0});
++}
++
+ bool SpeakerOutput::cycle_drum_beat() {
+-  if (!music_active()) return false;
+-  portENTER_CRITICAL(&music_mux_);
+-  if (music_command_count_ == kMusicCommandCapacity) {
+-    portEXIT_CRITICAL(&music_mux_);
+-    return false;
+-  }
+-  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+-  music_commands_[tail].kind = MusicCommand::Kind::CycleDrumBeat;
+-  ++music_command_count_;
+-  portEXIT_CRITICAL(&music_mux_);
+-  return true;
++  return enqueue_music_command({MusicCommand::Kind::CycleDrumBeat});
+ }
+ 
+ bool SpeakerOutput::toggle_drum_sequence() {
+-  if (!music_active()) return false;
+-  portENTER_CRITICAL(&music_mux_);
+-  if (music_command_count_ == kMusicCommandCapacity) {
+-    portEXIT_CRITICAL(&music_mux_);
+-    return false;
+-  }
+-  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+-  music_commands_[tail].kind = MusicCommand::Kind::ToggleDrumSequence;
+-  ++music_command_count_;
+-  portEXIT_CRITICAL(&music_mux_);
+-  return true;
++  return enqueue_music_command({MusicCommand::Kind::ToggleDrumSequence});
+ }
+ 
+ bool SpeakerOutput::toggle_drum_pause() {
+-  if (!music_active()) return false;
+-  portENTER_CRITICAL(&music_mux_);
+-  if (music_command_count_ == kMusicCommandCapacity) {
+-    portEXIT_CRITICAL(&music_mux_);
+-    return false;
+-  }
+-  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+-  music_commands_[tail].kind = MusicCommand::Kind::ToggleDrumPause;
+-  ++music_command_count_;
+-  portEXIT_CRITICAL(&music_mux_);
+-  return true;
++  return enqueue_music_command({MusicCommand::Kind::ToggleDrumPause});
+ }
+ 
+ bool SpeakerOutput::stop_drum_loop() {
+-  if (!music_active()) return false;
+-  portENTER_CRITICAL(&music_mux_);
+-  if (music_command_count_ == kMusicCommandCapacity) {
+-    portEXIT_CRITICAL(&music_mux_);
+-    return false;
+-  }
+-  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+-  music_commands_[tail].kind = MusicCommand::Kind::StopDrumLoop;
+-  ++music_command_count_;
+-  portEXIT_CRITICAL(&music_mux_);
+-  return true;
++  return enqueue_music_command({MusicCommand::Kind::StopDrumLoop});
+ }
+ 
+ bool SpeakerOutput::adjust_drum_tempo(int delta_bpm) {
+-  if (!music_active() || delta_bpm == 0) return false;
+-  portENTER_CRITICAL(&music_mux_);
+-  if (music_command_count_ == kMusicCommandCapacity) {
+-    portEXIT_CRITICAL(&music_mux_);
+-    return false;
+-  }
+-  const auto tail = (music_command_head_ + music_command_count_) % kMusicCommandCapacity;
+-  music_commands_[tail] = {MusicCommand::Kind::AdjustDrumTempo, 0U, false,
+-                            false, ai_keyboard::DrumVoice::Click, 100,
+-                            delta_bpm};
+-  ++music_command_count_;
+-  portEXIT_CRITICAL(&music_mux_);
+-  return true;
++  if (delta_bpm == 0) return false;
++  return enqueue_music_command({MusicCommand::Kind::AdjustDrumTempo, 0U, false,
++                                ai_keyboard::DrumVoice::Click, 100, delta_bpm});
+ }
+ 
+ std::uint8_t SpeakerOutput::adjust_music_volume(int delta_percent) {
+@@ -1473,16 +1421,13 @@ SpeakerOutput::WorkerResult SpeakerOutput::play_sound(
+ void SpeakerOutput::consume_music_commands() {
+   if (music_reset_pending_.exchange(false, std::memory_order_acq_rel)) {
+     ai_keyboard::MusicConfig config;
+-    bool pending_song_play = false;
+     portENTER_CRITICAL(&music_mux_);
+     config = music_config_;
+-    pending_song_play = pending_music_sequence_ready_ &&
+-                        pending_music_sequence_.command ==
+-                            ai_keyboard::MusicSequenceCommand::Play;
+     portEXIT_CRITICAL(&music_mux_);
+     // 鼓机 K8 的内置曲目是一次性显式播放；临时打开合成器音符门闸，
+     // 不改写 music_v1 持久配置，曲目结束后的下一会话仍按原设置恢复。
+-    if (pending_song_play) config.enabled = true;
++    // 请求已在 consume_music_sequence 中取走，以 worker 已加载的曲目为准。
++    if (music_sequence_player_.playing()) config.enabled = true;
+     music_synth_ = {};
+     music_synth_.apply_config(config);
+     // 新会话不能继承已取消的鼓机循环，否则切回钢琴会在无人触发时继续打点。
+diff --git a/main/platform/speaker_output.h b/main/platform/speaker_output.h
+index 0859951e5ff0eb007d4bec6577853abc53a7afc8..b8982f9e406447137654303171882b952882d9eb 100644
+--- a/main/platform/speaker_output.h
++++ b/main/platform/speaker_output.h
+@@ -191,11 +191,11 @@ class SpeakerOutput {
+     Kind kind = Kind::Note;
+     std::uint8_t key_index = 0;
+     bool pressed = false;
+-    bool drum = false;
+     ai_keyboard::DrumVoice drum_voice = ai_keyboard::DrumVoice::Click;
+     std::uint8_t velocity_percent = 100;
+     int tempo_delta_bpm = 0;
+   };
++  bool enqueue_music_command(const MusicCommand& command);
+   static constexpr std::size_t kMusicCommandCapacity = 16;
+   ai_keyboard::MusicSynth music_synth_;
+   ai_keyboard::DrumSequencer drum_sequencer_;

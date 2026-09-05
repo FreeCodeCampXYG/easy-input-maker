@@ -3025,8 +3025,12 @@ bool dispatch_music_volume(AppContext* app,
   // 避免把钢琴/曲目音量控制泄漏到其他鼓机功能。
   if (app->drum_mode_enabled && !app->speaker.music_sequence_active()) {
     constexpr int kDrumTempoPerDetent = 5;
-    return app->speaker.adjust_drum_tempo(
-        event.encoder_step * kDrumTempoPerDetent);
+    // 槽位拥有输入，音频会话空闲或队列满也不能回退为电脑滚动/光标动作。
+    if (!app->speaker.adjust_drum_tempo(
+            event.encoder_step * kDrumTempoPerDetent)) {
+      ESP_LOGW(kTag, "鼓机调速未入队，当前槽位已消费旋钮输入");
+    }
+    return true;
   }
   const auto volume = app->speaker.adjust_music_volume(
       event.encoder_step * kMusicVolumePercentPerDetent);
@@ -3341,15 +3345,21 @@ void apply_pending_music_sequence(AppContext* app) {
     }
     sequence = *builtin;
   }
+  // 播放入队与 NVS 落盘是不同结果；控制命令和不可编码曲目不能回报 saved=true。
+  bool saved = false;
   if (persist_song && ai_keyboard::encode_music_sequence(sequence, &song_payload)) {
     esp_err_t save_err = ESP_OK;
-    if (!app->config_store.save_song(song_payload, &save_err)) {
+    saved = app->config_store.save_song(song_payload, &save_err);
+    if (!saved) {
       ESP_LOGW(kTag, "MUSIC_SEQUENCE song_v1 save failed: %s", esp_err_to_name(save_err));
     }
   }
   if (!app->speaker.ready() &&
       (!app->speaker.shutdown_complete() ||
        app->speaker.begin(app->platform_task, &app->audio_io_arbiter) != ESP_OK)) {
+    app->usb.send_config_ack_for_epoch(
+        0x17, false, static_cast<std::uint16_t>(ai_keyboard::kMusicSequencePayloadLen),
+        0U, saved, endpoint_epoch);
     return;
   }
   const bool control_only = sequence.command == ai_keyboard::MusicSequenceCommand::Pause ||
@@ -3359,7 +3369,7 @@ void apply_pending_music_sequence(AppContext* app) {
                         app->speaker.request_music());
   app->usb.send_config_ack_for_epoch(
       0x17, applied, static_cast<std::uint16_t>(ai_keyboard::kMusicSequencePayloadLen),
-      0U, applied, endpoint_epoch);
+      0U, saved, endpoint_epoch);
   if (!applied) ESP_LOGW(kTag, "MUSIC_SEQUENCE apply rejected");
 }
 #endif

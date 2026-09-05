@@ -1,0 +1,175 @@
+{
+    "record_id":  "EIM-20260906-01",
+    "created_at":  "2026-09-06T01:56:34.6777355+08:00",
+    "baseline_commit":  "eb833458bed5ea96c49356816197a8cfd4efd4fe",
+    "branch":  "my-host-action-practice",
+    "status":  "local-uncommitted-not-flashed",
+    "scope":  "Reviewed code/test changes plus public documentation; not a full source repository or firmware",
+    "files":  [
+                  {
+                      "path":  ".clang-format",
+                      "bytes":  87,
+                      "sha256":  "679c2a0566e29904b8c244efebfac4a4dbc337f4cdb1f0113db3d1e6f8a1279a"
+                  },
+                  {
+                      "path":  "AGENTS.md",
+                      "bytes":  4644,
+                      "sha256":  "4dffa2e1a4bef95858294b45d084391622bed61d1fe13ed0cb563913f568d2e1"
+                  },
+                  {
+                      "path":  "AI_DEVELOPMENT.md",
+                      "bytes":  2040,
+                      "sha256":  "fd3282c4dd909f064618b7c1e3ae9ec343ed287c1ca190ba4887099b15b124be"
+                  },
+                  {
+                      "path":  "components/keyboard/include/keyboard/music_sequence_player.h",
+                      "bytes":  656,
+                      "sha256":  "e84584731270b6c3c2a9e7baedcf5c6118c07000c05b5e7da3e1d85b66877f49"
+                  },
+                  {
+                      "path":  "components/keyboard/include/keyboard/music_synth.h",
+                      "bytes":  3759,
+                      "sha256":  "ce4474634ca4852017a0e496646d5b8183d74acbd424043688e8ae2bf7e636c7"
+                  },
+                  {
+                      "path":  "components/keyboard/src/drum_sequencer.cpp",
+                      "bytes":  5019,
+                      "sha256":  "844a1840c2467b2cc861f113707564c6f06563ccd2eaa91508554a69b64a4ff8"
+                  },
+                  {
+                      "path":  "components/keyboard/src/music_sequence_player.cpp",
+                      "bytes":  4070,
+                      "sha256":  "5e089ce964994a2910de556945edd9a3d5984a491411766a76d4ea454aeceef2"
+                  },
+                  {
+                      "path":  "components/keyboard/src/music_synth.cpp",
+                      "bytes":  12042,
+                      "sha256":  "e355b36b62713ea8656bb7d89831096344df9ba107104132dd773aaac1a3b702"
+                  },
+                  {
+                      "path":  "DEV_STATE.md",
+                      "bytes":  27475,
+                      "sha256":  "1972972b8fc5690d34a524e39480cc869b62956d42635ea281a6733154a5b326"
+                  },
+                  {
+                      "path":  "docs/README.md",
+                      "bytes":  1444,
+                      "sha256":  "ffa6eef2d15a833b280fcd7bcdccfce1347cd16acbae14c41bd44656554e02b6"
+                  },
+                  {
+                      "path":  "docs/review/input-music-audit-2026-09-06.md",
+                      "bytes":  11201,
+                      "sha256":  "d6ecbdfac18f95177989f7cd4658d015727a74d2554b09a48dd057298656aee0"
+                  },
+                  {
+                      "path":  "docs/review/session-2026-09-06/code-changes.patch",
+                      "bytes":  34298,
+                      "sha256":  "36d5538ba9ac6b2a83e79258d25c1c414aa61cdbb6d76c1cd6f1c89793836b14"
+                  },
+                  {
+                      "path":  "docs/review/session-2026-09-06/README.md",
+                      "bytes":  9444,
+                      "sha256":  "9ba26b8a64df045ea3ebdf83aaf18429ea8173fa76146fb2ff520db6151cc2be"
+                  },
+                  {
+                      "path":  "flow/踩坑记录.md",
+                      "bytes":  916,
+                      "sha256":  "74176ca05587d01ee000e482e8e7fd314e116d75ee84ef164db6789502dfeff4"
+                  },
+                  {
+                      "path":  "flow/进展.md",
+                      "bytes":  20886,
+                      "sha256":  "501590191179d34ac6ae61bc215e0828477395b2dbd329b8c42961b449ae67cd"
+                  },
+                  {
+                      "path":  "host_test/drum_sequencer_tests.cpp",
+                      "bytes":  3191,
+                      "sha256":  "7cac04aa1a16dc157a8ea5c4c22ed0b2dff1a58c60dc6b35564e7cb4c146ed67"
+                  },
+                  {
+                      "path":  "host_test/firmware_source_contract_tests.cpp",
+                      "bytes":  168921,
+                      "sha256":  "677ab666c21abeb4a4fb8047da6765f5780e6e7a0731842cfb5ef3d7266c22ec"
+                  },
+                  {
+                      "path":  "host_test/music_config_protocol_tests.cpp",
+                      "bytes":  2636,
+                      "sha256":  "7a06b1cdfdb5984c9966fbd54f3365573efe01689410bf8ed6d5fe138eee2e43"
+                  },
+                  {
+                      "path":  "host_test/music_sequence_tests.cpp",
+                      "bytes":  6317,
+                      "sha256":  "81b260b05302f4189d7337867906510dec54004014229c37cac87e1177f5b81f"
+                  },
+                  {
+                      "path":  "host_test/music_synth_tests.cpp",
+                      "bytes":  8347,
+                      "sha256":  "75951e998688783e43d47f49500879a5a39ed1aabc6b75f210375d3cc0aa101b"
+                  },
+                  {
+                      "path":  "LICENSE",
+                      "bytes":  4887,
+                      "sha256":  "b4bfc48ad1a9f905ae76bd8614e2194e8fc208cd528d1a3d6d053d0ebd66808d"
+                  },
+                  {
+                      "path":  "main/app_main.cpp",
+                      "bytes":  165498,
+                      "sha256":  "4b122bff6da9fdda2c9156e78da222e9c6432e175e9997d5e86b5b99f164161f"
+                  },
+                  {
+                      "path":  "main/platform/speaker_output.cpp",
+                      "bytes":  93047,
+                      "sha256":  "2d5b7e16e28383dec6728a6c271e43602045f0b646a7db6cd409bc8bb1c55b34"
+                  },
+                  {
+                      "path":  "main/platform/speaker_output.h",
+                      "bytes":  11355,
+                      "sha256":  "f5ee0e6ebe447def10a8783a79ec6c0c9ef2ee646c64261cee2334367b261eef"
+                  },
+                  {
+                      "path":  "THIRD_PARTY_NOTICES.md",
+                      "bytes":  4717,
+                      "sha256":  "09f7a78604cb261dd3432e2a54c9d3e96d01306ec58c004a1744313dfca7723c"
+                  },
+                  {
+                      "path":  "docs/development/change-template.md",
+                      "bytes":  984,
+                      "sha256":  "192392da47b4c78444adb8b09ca8f1d63360dc6ddf7a6f8613030e63ed413a5a"
+                  },
+                  {
+                      "path":  "docs/development/feature-map.png",
+                      "bytes":  78983,
+                      "sha256":  "c510dbd85f12fe2e04adf35fc8c4d3460eebe2aafab9b15495be970aa047b347"
+                  },
+                  {
+                      "path":  "docs/development/feature-map.svg",
+                      "bytes":  4938,
+                      "sha256":  "273e45c2d990db54a5c352b48e645a0ae7700c7e8f6effa35a1b7b0e5f2ec258"
+                  },
+                  {
+                      "path":  "docs/development/README.md",
+                      "bytes":  7841,
+                      "sha256":  "1c01878698ffba140351684d0a08023a1e61e8769ef0dd76ce6ae9bf8fb33d8d"
+                  },
+                  {
+                      "path":  "docs/development/shared.md",
+                      "bytes":  3496,
+                      "sha256":  "e81bc4bc322d7b93bcfba881b4e804f734598d58434889c8bfb8dac570de1a1b"
+                  },
+                  {
+                      "path":  "docs/development/features/keyboard.md",
+                      "bytes":  1642,
+                      "sha256":  "e72f44006c395549a3c9009e2481d57c06760e3f2591e7ab0e956b331e3645ae"
+                  },
+                  {
+                      "path":  "docs/development/features/piano.md",
+                      "bytes":  1710,
+                      "sha256":  "932c491d9045009879d8cf84a7c6cf0411282f39f3d6c4e9126e8a27b9ce027d"
+                  },
+                  {
+                      "path":  "docs/development/features/rhythm.md",
+                      "bytes":  1978,
+                      "sha256":  "7159840178422aa84cbf6f3b38cadbf2e8158e05e7a392f08fc506bd47958346"
+                  }
+              ]
+}

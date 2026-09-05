@@ -38,6 +38,7 @@ struct MusicConfig {
 // MusicSynth 只保存离线可测的合成状态；平台层负责 I2S、GPIO8 和仲裁。
 class MusicSynth {
  public:
+  MusicSynth();
   bool apply_config(const MusicConfig& config);
   const MusicConfig& config() const;
   bool note_on(std::size_t key_index,
@@ -72,6 +73,8 @@ class MusicSynth {
   void advance_voice(Voice* voice);
 
   MusicConfig config_{};
+  std::uint32_t attack_step_ = 1;
+  std::uint32_t release_step_ = 1;
   std::array<Voice, kMusicMaxVoices> voices_{};
   std::uint64_t frame_clock_ = 0;
   std::uint64_t next_beat_frame_ = 0;
