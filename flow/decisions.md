@@ -86,3 +86,7 @@
 - 决定：
 - 原因：
 -->
+# 2026-09-07 · Mobile Companion v1 协议收口
+
+- 固定 16 字节帧增加 magic、版本、类型、命令、request id、payload 长度、flags、generation 和 CRC16；当前固件只授予 Mirror，Exclusive 先拒绝。
+- 手机协议状态独立于 HID owner 和 legacy AppCommand；App 未连接、未 bonded、未加密、服务不完整、超时或断线时不改变 PC HID。

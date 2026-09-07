@@ -27,6 +27,7 @@
 #include "keyboard/hid_report_queue.h"
 #include "keyboard/keymap.h"
 #include "keyboard/mobile_companion_protocol.h"
+#include "keyboard/mobile_companion_session.h"
 
 struct ble_gap_event;
 struct ble_gatt_access_ctxt;

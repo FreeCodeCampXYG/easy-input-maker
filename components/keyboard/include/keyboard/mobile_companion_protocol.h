@@ -8,115 +8,76 @@
 
 namespace ai_keyboard {
 
-// Mobile Companion v1 is an independent BLE GATT protocol. It deliberately
-// does not reuse HID Vendor reports, AppCommand, or HostAction payloads.
+inline constexpr std::uint8_t kMobileCompanionMagic = 0xE1;
 inline constexpr std::uint8_t kMobileCompanionProtocolVersion = 1;
 inline constexpr std::size_t kMobileCompanionFrameLen = 16;
 inline constexpr std::uint32_t kMobileCompanionDefaultLeaseMs = 15000;
 inline constexpr std::uint32_t kMobileCompanionMaxLeaseMs = 30000;
 
-enum class MobileCompanionCapability : std::uint8_t {
-  Unsupported = 0,
-  Mirror = 1,
-  Exclusive = 2,
-};
-
+// 0 magic, 1 version, 2 type, 3 command, 4..5 request_id, 6 payload_length,
+// 7 flags, 8..11 generation, 12..13 payload, 14..15 CRC16 (little-endian).
+enum class MobileCompanionFrameType : std::uint8_t { Command = 1, Ack = 2, Capability = 3, Event = 4, Config = 5 };
 enum class MobileCompanionCommand : std::uint8_t {
-  Request = 1,
-  Renew = 2,
-  Release = 3,
+  RequestMirror = 1, ReleaseMirror = 2, RenewMirror = 3, QueryCapability = 4,
+  ReadConfig = 5, WriteConfig = 6,
+};
+enum class MobileCompanionCapability : std::uint8_t { Unsupported = 0, Mirror = 1, Exclusive = 2 };
+enum class MobileCompanionResult : std::uint8_t {
+  Accepted = 0, UnsupportedVersion = 1, InvalidFrame = 2, Unauthorized = 3,
+  NotEncrypted = 4, NotBonded = 5, SessionExpired = 6, StaleGeneration = 7,
+  DuplicateRequest = 8, Busy = 9, UnsupportedCommand = 10,
 };
 
-enum class MobileCompanionResult : std::uint8_t {
-  Accepted = 0,
-  UnsupportedVersion = 1,
-  InvalidFrame = 2,
-  Unauthorized = 3,
-  SessionExpired = 4,
-  StaleConnection = 5,
-  Busy = 6,
-};
+inline constexpr std::uint8_t kMobileFlagExplicitExclusive = 0x01;
+inline constexpr std::uint8_t kMobileFlagKey1Voice = 0x10;
+inline constexpr std::uint8_t kMobileFlagKey3Rewrite = 0x20;
+inline constexpr std::uint8_t kMobileFlagKey8Shortcut = 0x40;
 
 struct MobileCompanionConnection {
   static constexpr std::uint16_t kNoConnection = 0xFFFF;
-
   std::uint16_t conn_handle = kNoConnection;
   std::uint32_t generation = 0;
-
   bool valid() const { return conn_handle != kNoConnection && generation != 0; }
-  bool operator==(const MobileCompanionConnection& other) const {
-    return conn_handle == other.conn_handle && generation == other.generation;
-  }
-  bool operator!=(const MobileCompanionConnection& other) const {
-    return !(*this == other);
-  }
+  bool operator==(const MobileCompanionConnection& other) const { return conn_handle == other.conn_handle && generation == other.generation; }
+  bool operator!=(const MobileCompanionConnection& other) const { return !(*this == other); }
 };
 
 struct MobileCompanionRequest {
-  MobileCompanionCommand command = MobileCompanionCommand::Request;
+  MobileCompanionFrameType frame_type = MobileCompanionFrameType::Command;
+  MobileCompanionCommand command = MobileCompanionCommand::QueryCapability;
+  std::uint16_t request_id = 0;
+  std::uint8_t flags = 0;
+  std::uint32_t generation = 0;
   MobileCompanionCapability capability = MobileCompanionCapability::Unsupported;
-  std::uint32_t request_id = 0;
-  std::uint32_t lease_ms = 0;
-  // This bit is intentionally separate from BLE pairing. Pairing proves the
-  // peer identity; Exclusive additionally requires an explicit v1 request.
-  bool explicit_exclusive_authorization = false;
+  std::uint16_t lease_ms = 0;
 };
 
 struct MobileCompanionAck {
-  std::uint32_t request_id = 0;
+  MobileCompanionFrameType frame_type = MobileCompanionFrameType::Ack;
+  MobileCompanionCommand command = MobileCompanionCommand::QueryCapability;
+  std::uint16_t request_id = 0;
+  std::uint8_t flags = 0;
+  std::uint32_t generation = 0;
   MobileCompanionResult result = MobileCompanionResult::InvalidFrame;
-  MobileCompanionCapability granted = MobileCompanionCapability::Unsupported;
-  std::uint32_t lease_ms = 0;
-  std::uint32_t session_generation = 0;
+  MobileCompanionCapability capability = MobileCompanionCapability::Unsupported;
+  std::uint16_t lease_ms = 0;
 };
 
 struct MobileCompanionInputEvent {
+  std::uint16_t event_id = 0;
   InputId input = InputId::Count;
   InputPhase phase = InputPhase::Pressed;
-  std::int32_t encoder_step = 0;
-  std::uint32_t input_sequence = 0;
+  std::uint8_t flags = 0;
+  std::uint32_t generation = 0;
+  std::uint32_t sequence = 0;
 };
 
-bool decode_mobile_companion_request(const std::uint8_t* data,
-                                     std::size_t len,
-                                     MobileCompanionRequest* out);
-bool encode_mobile_companion_ack(const MobileCompanionAck& ack,
-                                 std::array<std::uint8_t, kMobileCompanionFrameLen>* out);
-bool encode_mobile_companion_input_event(
-    const MobileCompanionInputEvent& event,
-    std::uint32_t session_generation,
-    std::array<std::uint8_t, kMobileCompanionFrameLen>* out);
-
-// Pure lease and connection-generation state. The platform authenticates a
-// GATT write before it calls request(); this class still fail-closes every
-// reconnect, timeout and owner mismatch so stale packets cannot be replayed.
-class MobileCompanionSession {
- public:
-  MobileCompanionAck request(const MobileCompanionConnection& connection,
-                             const MobileCompanionRequest& request,
-                             bool connection_authorized,
-                             bool exclusive_transition_safe,
-                             std::uint32_t now_ms);
-  bool release(const MobileCompanionConnection& connection,
-               std::uint32_t request_id,
-               std::uint32_t now_ms);
-  bool expire(std::uint32_t now_ms);
-  bool disconnect(const MobileCompanionConnection& connection);
-  bool accepts(const MobileCompanionConnection& connection,
-               std::uint32_t now_ms) const;
-  bool exclusive_active(const MobileCompanionConnection& connection,
-                        std::uint32_t now_ms) const;
-  MobileCompanionCapability capability() const { return capability_; }
-  std::uint32_t session_generation() const { return session_generation_; }
-
- private:
-  void clear();
-  static bool time_reached(std::uint32_t now_ms, std::uint32_t deadline_ms);
-
-  MobileCompanionConnection connection_{};
-  MobileCompanionCapability capability_ = MobileCompanionCapability::Unsupported;
-  std::uint32_t deadline_ms_ = 0;
-  std::uint32_t session_generation_ = 0;
-};
+std::uint16_t mobile_companion_crc16(const std::uint8_t* data, std::size_t len);
+bool encode_mobile_companion_request(const MobileCompanionRequest& request,
+                                     std::array<std::uint8_t, kMobileCompanionFrameLen>* out);
+bool decode_mobile_companion_request(const std::uint8_t* data, std::size_t len, MobileCompanionRequest* out);
+bool encode_mobile_companion_ack(const MobileCompanionAck& ack, std::array<std::uint8_t, kMobileCompanionFrameLen>* out);
+bool encode_mobile_companion_capability(MobileCompanionCapability capability, std::array<std::uint8_t, kMobileCompanionFrameLen>* out);
+bool encode_mobile_companion_input_event(const MobileCompanionInputEvent& event, std::array<std::uint8_t, kMobileCompanionFrameLen>* out);
 
 }  // namespace ai_keyboard

@@ -1970,8 +1970,9 @@ void BleHidTransport::resolve_mobile_request(
     std::uint32_t now_ms) {
   ai_keyboard::MobileCompanionAck ack;
   portENTER_CRITICAL(&mobile_companion_mux_);
-  ack = mobile_companion_session_.request(connection, request, true,
-                                          exclusive_transition_safe, now_ms);
+  // 仅允许 Mirror；Exclusive 不属于当前协议首版能力，避免误授予手机抢占 PC 输入。
+  (void)exclusive_transition_safe;
+  ack = mobile_companion_session_.handle(connection, request, true, true, true, now_ms);
   portEXIT_CRITICAL(&mobile_companion_mux_);
   std::array<std::uint8_t, ai_keyboard::kMobileCompanionFrameLen> frame{};
   if (ai_keyboard::encode_mobile_companion_ack(ack, &frame)) {
@@ -1984,6 +1985,11 @@ bool BleHidTransport::publish_mobile_input(ai_keyboard::InputId input,
                                             std::int32_t encoder_step,
                                             std::uint32_t input_sequence,
                                             std::uint32_t now_ms) {
+  // v1 仅开放明确登记的 KEY1/KEY3/KEY8；其他按键和旋钮必须继续走 PC HID 基线。
+  if (input != ai_keyboard::InputId::Key1 && input != ai_keyboard::InputId::Key3 &&
+      input != ai_keyboard::InputId::Key8) {
+    return false;
+  }
   ai_keyboard::MobileCompanionConnection connection{};
   std::uint32_t session_generation = 0;
   bool exclusive = false;
@@ -1994,8 +2000,8 @@ bool BleHidTransport::publish_mobile_input(ai_keyboard::InputId input,
                                                             endpoint.generation};
     if (mobile_companion_session_.accepts(candidate, now_ms)) {
       connection = candidate;
-      session_generation = mobile_companion_session_.session_generation();
-      exclusive = mobile_companion_session_.exclusive_active(candidate, now_ms);
+      session_generation = mobile_companion_session_.generation();
+      exclusive = mobile_companion_session_.mirror_active(candidate, now_ms);
       break;
     }
   }
@@ -2003,9 +2009,18 @@ bool BleHidTransport::publish_mobile_input(ai_keyboard::InputId input,
   if (!connection.valid()) {
     return false;
   }
-  ai_keyboard::MobileCompanionInputEvent event{input, phase, encoder_step, input_sequence};
+  ai_keyboard::MobileCompanionInputEvent event{};
+  event.event_id = static_cast<std::uint16_t>(input_sequence == 0 ? 1 : input_sequence);
+  event.input = input;
+  event.phase = phase;
+  event.generation = session_generation;
+  event.sequence = input_sequence;
+  if (input == ai_keyboard::InputId::Key1) event.flags = ai_keyboard::kMobileFlagKey1Voice;
+  if (input == ai_keyboard::InputId::Key3) event.flags = ai_keyboard::kMobileFlagKey3Rewrite;
+  if (input == ai_keyboard::InputId::Key8) event.flags = ai_keyboard::kMobileFlagKey8Shortcut;
+  (void)encoder_step;
   std::array<std::uint8_t, ai_keyboard::kMobileCompanionFrameLen> frame{};
-  if (ai_keyboard::encode_mobile_companion_input_event(event, session_generation, &frame)) {
+  if (ai_keyboard::encode_mobile_companion_input_event(event, &frame)) {
     (void)send_mobile_companion_frame(connection, s_mobile_companion_event_handle, frame);
   }
   return exclusive;
@@ -3198,11 +3213,15 @@ int BleHidTransport::handle_mobile_companion_access(
   const int result = [&]() -> int {
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
       if (attr_handle == s_mobile_companion_capability_handle) {
+        const int auth_error = config_write_authorization_error(conn_handle);
+        if (auth_error != 0) {
+          return auth_error;
+        }
         ai_keyboard::MobileCompanionAck capability;
         capability.result = ai_keyboard::MobileCompanionResult::Accepted;
-        capability.granted = ai_keyboard::MobileCompanionCapability::Exclusive;
         std::array<std::uint8_t, ai_keyboard::kMobileCompanionFrameLen> frame{};
-        if (!ai_keyboard::encode_mobile_companion_ack(capability, &frame) ||
+        if (!ai_keyboard::encode_mobile_companion_capability(
+                ai_keyboard::MobileCompanionCapability::Mirror, &frame) ||
             os_mbuf_append(ctxt->om, frame.data(), frame.size()) != 0) {
           return BLE_ATT_ERR_INSUFFICIENT_RES;
         }
