@@ -16,10 +16,13 @@ struct BlePersistencePolicy {
   static constexpr std::size_t kHidReportInputSubscriptions = 3;
   static constexpr std::size_t kHidBootInputSubscriptions = 2;
   static constexpr std::size_t kConfigStatusSubscriptions = 1;
+  static constexpr std::size_t kMobileCompanionAckSubscriptions = 1;
+  static constexpr std::size_t kMobileCompanionEventSubscriptions = 1;
   static constexpr std::size_t kPersistentSubscriptionsPerPeer =
       kServiceChangedSubscriptions + kScanRefreshSubscriptions +
       kHidReportInputSubscriptions + kHidBootInputSubscriptions +
-      kConfigStatusSubscriptions;
+      kConfigStatusSubscriptions + kMobileCompanionAckSubscriptions +
+      kMobileCompanionEventSubscriptions;
   static constexpr std::size_t kMigrationReserve =
       kPersistentSubscriptionsPerPeer;
   static constexpr std::size_t kRequiredCccdCapacity =

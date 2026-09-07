@@ -1,5 +1,12 @@
 # EasyInput Maker 开发状态
 
+## 2026-09-07：Mobile Companion v1（当前）
+
+- 新增独立 BLE GATT Mobile Companion v1：版本化 16-byte 帧、能力读取、申请/续租/释放 ACK、connection generation 与 lease；不复用 HID Report、HostAction 或 legacy AppCommand。
+- Mirror 仅复制去抖后的实体输入，PC HID 保持原路由；Exclusive 仅在无 held keyboard、bridge hotkey 和 text-selection chord 时由主任务批准，断线/过期/代际变化 fail-closed。
+- CCCD 产品预算随两个 Notify 特征值从每 peer 8/总 32 升为 10/总 40，GATT schema revision 升为 6；已有配对订阅通过既有迁移路径失效重建。
+- 验证：完整宿主 CTest 67/67 和 `git diff --check` 通过。本机当前未加载 ESP-IDF，未取得目标固件构建证据；CI、EasyInputApp 联调、烧录和实板验证均待完成。
+
 ## 2026-09-06：本次对话核对留痕
 
 - 汇总本次 M01—M11 修复/优化与 D01—D06 文档分层，入口 `docs/review/session-2026-09-06/README.md`；以基线 commit、代码补丁和文件 SHA-256 区分本地候选与设备版本。

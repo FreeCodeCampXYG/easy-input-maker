@@ -3208,7 +3208,7 @@ void ble_persistence_is_capacity_safe_and_migrated_before_advertising() {
 
   assert(defaults.find("CONFIG_BT_NIMBLE_MAX_BONDS=3") !=
          std::string::npos);
-  assert(defaults.find("CONFIG_BT_NIMBLE_MAX_CCCDS=32") !=
+  assert(defaults.find("CONFIG_BT_NIMBLE_MAX_CCCDS=40") !=
          std::string::npos);
   assert(compact_ble_hid.find(
              "CONFIG_BT_NIMBLE_MAX_BONDS=="

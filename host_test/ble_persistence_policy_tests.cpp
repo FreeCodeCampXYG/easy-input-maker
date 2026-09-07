@@ -14,13 +14,15 @@ void capacity_is_derived_from_the_product_contract() {
   static_assert(BlePersistencePolicy::kHidReportInputSubscriptions == 3);
   static_assert(BlePersistencePolicy::kHidBootInputSubscriptions == 2);
   static_assert(BlePersistencePolicy::kConfigStatusSubscriptions == 1);
-  static_assert(BlePersistencePolicy::kPersistentSubscriptionsPerPeer == 8);
-  static_assert(BlePersistencePolicy::kMigrationReserve == 8);
-  static_assert(BlePersistencePolicy::kRequiredCccdCapacity == 32);
+  static_assert(BlePersistencePolicy::kMobileCompanionAckSubscriptions == 1);
+  static_assert(BlePersistencePolicy::kMobileCompanionEventSubscriptions == 1);
+  static_assert(BlePersistencePolicy::kPersistentSubscriptionsPerPeer == 10);
+  static_assert(BlePersistencePolicy::kMigrationReserve == 10);
+  static_assert(BlePersistencePolicy::kRequiredCccdCapacity == 40);
 
   assert(!BlePersistencePolicy::cccd_capacity_supports_product(8));
-  assert(!BlePersistencePolicy::cccd_capacity_supports_product(31));
-  assert(BlePersistencePolicy::cccd_capacity_supports_product(32));
+  assert(!BlePersistencePolicy::cccd_capacity_supports_product(39));
+  assert(BlePersistencePolicy::cccd_capacity_supports_product(40));
 }
 
 void schema_migration_preserves_only_service_changed_subscription() {

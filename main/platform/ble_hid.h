@@ -26,6 +26,7 @@
 #include "keyboard/gatt_status_snapshot.h"
 #include "keyboard/hid_report_queue.h"
 #include "keyboard/keymap.h"
+#include "keyboard/mobile_companion_protocol.h"
 
 struct ble_gap_event;
 struct ble_gatt_access_ctxt;
@@ -120,12 +121,33 @@ class BleHidTransport {
   int handle_config_access(std::uint16_t conn_handle,
                            std::uint16_t attr_handle,
                            ble_gatt_access_ctxt* ctxt);
+  bool take_pending_mobile_request(ai_keyboard::MobileCompanionRequest* request,
+                                   ai_keyboard::MobileCompanionConnection* connection);
+  void resolve_mobile_request(const ai_keyboard::MobileCompanionConnection& connection,
+                              const ai_keyboard::MobileCompanionRequest& request,
+                              bool exclusive_transition_safe,
+                              std::uint32_t now_ms);
+  bool publish_mobile_input(ai_keyboard::InputId input,
+                            ai_keyboard::InputPhase phase,
+                            std::int32_t encoder_step,
+                            std::uint32_t input_sequence,
+                            std::uint32_t now_ms);
 
  private:
   esp_err_t init_low_level();
   esp_err_t prepare_identity_address();
   esp_err_t ensure_identity_set();
   esp_err_t register_config_service();
+  esp_err_t register_mobile_companion_service();
+  int handle_mobile_companion_access(std::uint16_t conn_handle,
+                                     std::uint16_t attr_handle,
+                                     ble_gatt_access_ctxt* ctxt);
+  void begin_mobile_endpoint_lifetime(std::uint16_t conn_handle);
+  void end_mobile_endpoint_lifetime(std::uint16_t conn_handle);
+  bool send_mobile_companion_frame(
+      const ai_keyboard::MobileCompanionConnection& connection,
+      std::uint16_t characteristic_handle,
+      const std::array<std::uint8_t, ai_keyboard::kMobileCompanionFrameLen>& frame);
   esp_err_t start_advertising(ai_keyboard::BleAdvertisingMode mode);
   bool start_directed_reconnect_advertising();
   ai_keyboard::BleAdvertisingMode desired_advertising_mode();
@@ -247,6 +269,20 @@ class BleHidTransport {
   std::string pending_config_json_;
   ai_keyboard::BleOwnerToken pending_config_owner_{};
   bool pending_config_ready_ = false;
+
+  struct MobileEndpointLifetime {
+    std::uint16_t conn_handle = ai_keyboard::MobileCompanionConnection::kNoConnection;
+    std::uint32_t generation = 0;
+  };
+  // 手机旁路连接不等于 HID owner；单独代际避免辅助 GATT 链路复用 HID 身份。
+  mutable portMUX_TYPE mobile_companion_mux_ = portMUX_INITIALIZER_UNLOCKED;
+  std::array<MobileEndpointLifetime, CONFIG_BT_NIMBLE_MAX_CONNECTIONS>
+      mobile_endpoint_lifetimes_{};
+  std::uint32_t mobile_endpoint_generation_counter_ = 0;
+  ai_keyboard::MobileCompanionSession mobile_companion_session_;
+  ai_keyboard::MobileCompanionRequest pending_mobile_request_{};
+  ai_keyboard::MobileCompanionConnection pending_mobile_connection_{};
+  bool pending_mobile_request_ready_ = false;
 
   mutable portMUX_TYPE pending_agent_status_mux_ = portMUX_INITIALIZER_UNLOCKED;
   ai_keyboard::AgentStatusCommand pending_agent_status_{};

@@ -9,7 +9,7 @@
 | 层级 | 内容 | 什么时候读 |
 | --- | --- | --- |
 | L0 总览 | 本页、根目录 [DEV_STATE](../../DEV_STATE.md) 顶部、当前分支 | 每次开始，明确目标和已验证状态 |
-| L1 功能 | [keyboard](features/keyboard.md)、[piano](features/piano.md)、[rhythm](features/rhythm.md) | 只读本次涉及的功能；“功能一”对应 keyboard |
+| L1 功能 | [keyboard](features/keyboard.md)、[piano](features/piano.md)、[rhythm](features/rhythm.md)、[mobile-companion](features/mobile-companion.md) | 只读本次涉及的功能；“功能一”对应 keyboard，mobile-companion 不是槽位 |
 | L2 共享合同 | [共享底座](shared.md) | 改公共文件、协议、输入路由、配置、音频或电源时必读 |
 | L3 历史 | [审计报告](../review/input-music-audit-2026-09-06.md)、flow 任务/进展 | 查某个已知问题或决策；不要每次从头读所有历史 |
 

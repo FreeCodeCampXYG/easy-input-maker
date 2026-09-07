@@ -16,6 +16,7 @@
 - [x] T10 · 烧录前只读审计全部变化（唯一重复 source 阻断已去重，重新验证后 `SAFE_TO_REQUEST_FLASH = YES`）；烧录与真机功能验证仍需独立授权和观察。
 - [ ] T14 · 实现离线八键钢琴、Music Config v1、独立 WebHID 设置页与节拍器；先完成宿主/构建证据，再独立确认烧录。
 - [ ] T15 · 保持既有 Vendor HID 状态报告预算，供外部工具读取板级输入/电源遥测；不新增常驻诊断服务。
+- [x] T16 · Mobile Companion v1 独立 GATT、版本协商、Mirror / Exclusive 会话代际与宿主回归；目标 CI、App 联调和实板待验证。
 
 ## 合同入口
 

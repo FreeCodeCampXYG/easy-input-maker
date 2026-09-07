@@ -52,7 +52,7 @@ constexpr std::uint16_t kBleHidVersion = 0x010A;
 // Revision 5 establishes the versioned CCCD migration epoch. Public UUIDs and
 // report descriptors remain unchanged; old characteristic-handle subscriptions
 // are retired before the new revision is advertised.
-constexpr std::uint8_t kGattSchemaRevision = 5;
+constexpr std::uint8_t kGattSchemaRevision = 6;
 constexpr std::uint8_t kReportIdKeyboard = 0x01;
 constexpr std::uint8_t kReportIdMouse = 0x02;
 constexpr std::uint8_t kReportIdConfig = 0x10;
@@ -299,10 +299,28 @@ const ble_uuid128_t kConfigStatusUuid =
 const ble_uuid128_t kAgentStatusWriteUuid =
     BLE_UUID128_INIT(0x04, 0x00, 0x32, 0x53, 0x46, 0x6D, 0x01, 0x8B,
                      0x2D, 0x4A, 0x6B, 0x6F, 0x10, 0x4D, 0x2F, 0x7D);
+const ble_uuid128_t kMobileCompanionServiceUuid =
+    BLE_UUID128_INIT(0x10, 0x00, 0x32, 0x53, 0x46, 0x6D, 0x01, 0x8B,
+                     0x2D, 0x4A, 0x6B, 0x6F, 0x10, 0x4D, 0x2F, 0x7D);
+const ble_uuid128_t kMobileCompanionControlUuid =
+    BLE_UUID128_INIT(0x11, 0x00, 0x32, 0x53, 0x46, 0x6D, 0x01, 0x8B,
+                     0x2D, 0x4A, 0x6B, 0x6F, 0x10, 0x4D, 0x2F, 0x7D);
+const ble_uuid128_t kMobileCompanionCapabilityUuid =
+    BLE_UUID128_INIT(0x12, 0x00, 0x32, 0x53, 0x46, 0x6D, 0x01, 0x8B,
+                     0x2D, 0x4A, 0x6B, 0x6F, 0x10, 0x4D, 0x2F, 0x7D);
+const ble_uuid128_t kMobileCompanionAckUuid =
+    BLE_UUID128_INIT(0x13, 0x00, 0x32, 0x53, 0x46, 0x6D, 0x01, 0x8B,
+                     0x2D, 0x4A, 0x6B, 0x6F, 0x10, 0x4D, 0x2F, 0x7D);
+const ble_uuid128_t kMobileCompanionEventUuid =
+    BLE_UUID128_INIT(0x14, 0x00, 0x32, 0x53, 0x46, 0x6D, 0x01, 0x8B,
+                     0x2D, 0x4A, 0x6B, 0x6F, 0x10, 0x4D, 0x2F, 0x7D);
 
 BleHidTransport* s_transport = nullptr;
 std::uint16_t s_config_status_handle = 0;
 std::uint16_t s_agent_status_write_handle = 0;
+std::uint16_t s_mobile_companion_ack_handle = 0;
+std::uint16_t s_mobile_companion_event_handle = 0;
+std::uint16_t s_mobile_companion_capability_handle = 0;
 
 bool is_bonded_peer(
     const ble_addr_t& peer,
@@ -557,6 +575,16 @@ int config_access_callback(std::uint16_t conn_handle,
   return s_transport->handle_config_access(conn_handle, attr_handle, ctxt);
 }
 
+int mobile_companion_access_callback(std::uint16_t conn_handle,
+                                     std::uint16_t attr_handle,
+                                     ble_gatt_access_ctxt* ctxt,
+                                     void* arg) {
+  (void)arg;
+  return s_transport == nullptr || ctxt == nullptr
+             ? BLE_ATT_ERR_UNLIKELY
+             : s_transport->handle_mobile_companion_access(conn_handle, attr_handle, ctxt);
+}
+
 const ble_gatt_chr_def kConfigCharacteristics[] = {
     {
         reinterpret_cast<const ble_uuid_t*>(&kConfigWriteUuid),
@@ -598,6 +626,29 @@ const ble_gatt_svc_def kConfigServices[] = {
         nullptr,
         kConfigCharacteristics,
     },
+    {},
+};
+
+const ble_gatt_chr_def kMobileCompanionCharacteristics[] = {
+    {reinterpret_cast<const ble_uuid_t*>(&kMobileCompanionControlUuid),
+     mobile_companion_access_callback, nullptr, nullptr,
+     BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP, 0, nullptr, nullptr},
+    {reinterpret_cast<const ble_uuid_t*>(&kMobileCompanionCapabilityUuid),
+     mobile_companion_access_callback, nullptr, nullptr, BLE_GATT_CHR_F_READ, 0,
+     &s_mobile_companion_capability_handle, nullptr},
+    {reinterpret_cast<const ble_uuid_t*>(&kMobileCompanionAckUuid),
+     mobile_companion_access_callback, nullptr, nullptr, BLE_GATT_CHR_F_NOTIFY, 0,
+     &s_mobile_companion_ack_handle, nullptr},
+    {reinterpret_cast<const ble_uuid_t*>(&kMobileCompanionEventUuid),
+     mobile_companion_access_callback, nullptr, nullptr, BLE_GATT_CHR_F_NOTIFY, 0,
+     &s_mobile_companion_event_handle, nullptr},
+    {},
+};
+
+const ble_gatt_svc_def kMobileCompanionServices[] = {
+    {BLE_GATT_SVC_TYPE_PRIMARY,
+     reinterpret_cast<const ble_uuid_t*>(&kMobileCompanionServiceUuid), nullptr,
+     kMobileCompanionCharacteristics},
     {},
 };
 
@@ -796,6 +847,10 @@ esp_err_t BleHidTransport::begin() {
   }
 
   err = register_config_service();
+  if (err != ESP_OK) {
+    return err;
+  }
+  err = register_mobile_companion_service();
   if (err != ESP_OK) {
     return err;
   }
@@ -1872,6 +1927,90 @@ bool BleHidTransport::take_pending_agent_status(ai_keyboard::AgentStatusCommand*
   return ready;
 }
 
+bool BleHidTransport::take_pending_mobile_request(
+    ai_keyboard::MobileCompanionRequest* request,
+    ai_keyboard::MobileCompanionConnection* connection) {
+  if (request == nullptr || connection == nullptr) {
+    return false;
+  }
+  portENTER_CRITICAL(&mobile_companion_mux_);
+  const bool ready = pending_mobile_request_ready_;
+  if (ready) {
+    *request = pending_mobile_request_;
+    *connection = pending_mobile_connection_;
+    pending_mobile_request_ready_ = false;
+    pending_mobile_connection_ = {};
+  }
+  portEXIT_CRITICAL(&mobile_companion_mux_);
+  return ready;
+}
+
+bool BleHidTransport::send_mobile_companion_frame(
+    const ai_keyboard::MobileCompanionConnection& connection,
+    std::uint16_t characteristic_handle,
+    const std::array<std::uint8_t, ai_keyboard::kMobileCompanionFrameLen>& frame) {
+  if (!connection.valid() || characteristic_handle == 0) {
+    return false;
+  }
+  os_mbuf* om = ble_hs_mbuf_from_flat(frame.data(), frame.size());
+  if (om == nullptr) {
+    return false;
+  }
+  const int rc = ble_gatts_notify_custom(connection.conn_handle, characteristic_handle, om);
+  if (rc == 0) {
+    arm_ble_tx_grace(connection.conn_handle);
+  }
+  return rc == 0;
+}
+
+void BleHidTransport::resolve_mobile_request(
+    const ai_keyboard::MobileCompanionConnection& connection,
+    const ai_keyboard::MobileCompanionRequest& request,
+    bool exclusive_transition_safe,
+    std::uint32_t now_ms) {
+  ai_keyboard::MobileCompanionAck ack;
+  portENTER_CRITICAL(&mobile_companion_mux_);
+  ack = mobile_companion_session_.request(connection, request, true,
+                                          exclusive_transition_safe, now_ms);
+  portEXIT_CRITICAL(&mobile_companion_mux_);
+  std::array<std::uint8_t, ai_keyboard::kMobileCompanionFrameLen> frame{};
+  if (ai_keyboard::encode_mobile_companion_ack(ack, &frame)) {
+    (void)send_mobile_companion_frame(connection, s_mobile_companion_ack_handle, frame);
+  }
+}
+
+bool BleHidTransport::publish_mobile_input(ai_keyboard::InputId input,
+                                            ai_keyboard::InputPhase phase,
+                                            std::int32_t encoder_step,
+                                            std::uint32_t input_sequence,
+                                            std::uint32_t now_ms) {
+  ai_keyboard::MobileCompanionConnection connection{};
+  std::uint32_t session_generation = 0;
+  bool exclusive = false;
+  portENTER_CRITICAL(&mobile_companion_mux_);
+  (void)mobile_companion_session_.expire(now_ms);
+  for (const auto& endpoint : mobile_endpoint_lifetimes_) {
+    const ai_keyboard::MobileCompanionConnection candidate{endpoint.conn_handle,
+                                                            endpoint.generation};
+    if (mobile_companion_session_.accepts(candidate, now_ms)) {
+      connection = candidate;
+      session_generation = mobile_companion_session_.session_generation();
+      exclusive = mobile_companion_session_.exclusive_active(candidate, now_ms);
+      break;
+    }
+  }
+  portEXIT_CRITICAL(&mobile_companion_mux_);
+  if (!connection.valid()) {
+    return false;
+  }
+  ai_keyboard::MobileCompanionInputEvent event{input, phase, encoder_step, input_sequence};
+  std::array<std::uint8_t, ai_keyboard::kMobileCompanionFrameLen> frame{};
+  if (ai_keyboard::encode_mobile_companion_input_event(event, session_generation, &frame)) {
+    (void)send_mobile_companion_frame(connection, s_mobile_companion_event_handle, frame);
+  }
+  return exclusive;
+}
+
 void BleHidTransport::publish_status_json(const std::string& status_json) {
   const bool fits_safe_gatt_read =
       status_json.size() <= ai_keyboard::kConfigStatusGattSafeLen;
@@ -2759,6 +2898,7 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
                                   &host_synced);
         begin_config_endpoint_lifetime(event->connect.conn_handle,
                                        host_generation);
+        begin_mobile_endpoint_lifetime(event->connect.conn_handle);
         forget_status_read_snapshot(event->connect.conn_handle);
         directed_reconnect_active_.store(false, std::memory_order_release);
         // A GAP connection already exists (either the future HID owner or an
@@ -2806,6 +2946,7 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
       }
       portEXIT_CRITICAL(&connection_power_mux_);
       end_config_endpoint_lifetime(event->disconnect.conn.conn_handle);
+      end_mobile_endpoint_lifetime(event->disconnect.conn.conn_handle);
       forget_status_read_snapshot(event->disconnect.conn.conn_handle);
       // GAP events are useful wake-up hints, but queue cleanup during fatal
       // recovery is deliberately left to service_owner_recovery(), which
@@ -3008,6 +3149,109 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
   }
 }
 
+void BleHidTransport::begin_mobile_endpoint_lifetime(std::uint16_t conn_handle) {
+  if (conn_handle == kInvalidConnHandle) {
+    return;
+  }
+  portENTER_CRITICAL(&mobile_companion_mux_);
+  MobileEndpointLifetime* selected = nullptr;
+  for (auto& endpoint : mobile_endpoint_lifetimes_) {
+    if (endpoint.conn_handle == conn_handle || endpoint.generation == 0) {
+      selected = &endpoint;
+      break;
+    }
+  }
+  if (selected != nullptr) {
+    do {
+      ++mobile_endpoint_generation_counter_;
+    } while (mobile_endpoint_generation_counter_ == 0);
+    *selected = {conn_handle, mobile_endpoint_generation_counter_};
+  }
+  portEXIT_CRITICAL(&mobile_companion_mux_);
+}
+
+void BleHidTransport::end_mobile_endpoint_lifetime(std::uint16_t conn_handle) {
+  portENTER_CRITICAL(&mobile_companion_mux_);
+  for (auto& endpoint : mobile_endpoint_lifetimes_) {
+    if (endpoint.conn_handle == conn_handle) {
+      const ai_keyboard::MobileCompanionConnection connection{endpoint.conn_handle,
+                                                               endpoint.generation};
+      (void)mobile_companion_session_.disconnect(connection);
+      endpoint = {};
+      break;
+    }
+  }
+  if (pending_mobile_connection_.conn_handle == conn_handle) {
+    pending_mobile_connection_ = {};
+    pending_mobile_request_ready_ = false;
+  }
+  portEXIT_CRITICAL(&mobile_companion_mux_);
+}
+
+int BleHidTransport::handle_mobile_companion_access(
+    std::uint16_t conn_handle,
+    std::uint16_t attr_handle,
+    ble_gatt_access_ctxt* ctxt) {
+  if (ctxt == nullptr || !try_enter_management_callback()) {
+    return BLE_ATT_ERR_UNLIKELY;
+  }
+  const int result = [&]() -> int {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+      if (attr_handle == s_mobile_companion_capability_handle) {
+        ai_keyboard::MobileCompanionAck capability;
+        capability.result = ai_keyboard::MobileCompanionResult::Accepted;
+        capability.granted = ai_keyboard::MobileCompanionCapability::Exclusive;
+        std::array<std::uint8_t, ai_keyboard::kMobileCompanionFrameLen> frame{};
+        if (!ai_keyboard::encode_mobile_companion_ack(capability, &frame) ||
+            os_mbuf_append(ctxt->om, frame.data(), frame.size()) != 0) {
+          return BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
+        return 0;
+      }
+      return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+      return BLE_ATT_ERR_UNLIKELY;
+    }
+    const int auth_error = config_write_authorization_error(conn_handle);
+    if (auth_error != 0) {
+      return auth_error;
+    }
+    if (OS_MBUF_PKTLEN(ctxt->om) != ai_keyboard::kMobileCompanionFrameLen) {
+      return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    std::array<std::uint8_t, ai_keyboard::kMobileCompanionFrameLen> bytes{};
+    if (os_mbuf_copydata(ctxt->om, 0, bytes.size(), bytes.data()) != 0) {
+      return BLE_ATT_ERR_UNLIKELY;
+    }
+    ai_keyboard::MobileCompanionRequest request;
+    if (!ai_keyboard::decode_mobile_companion_request(bytes.data(), bytes.size(), &request)) {
+      return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    portENTER_CRITICAL(&mobile_companion_mux_);
+    ai_keyboard::MobileCompanionConnection connection{};
+    for (const auto& endpoint : mobile_endpoint_lifetimes_) {
+      if (endpoint.conn_handle == conn_handle) {
+        connection = {endpoint.conn_handle, endpoint.generation};
+        break;
+      }
+    }
+    if (!connection.valid() || pending_mobile_request_ready_) {
+      portEXIT_CRITICAL(&mobile_companion_mux_);
+      return BLE_ATT_ERR_UNLIKELY;
+    }
+    pending_mobile_connection_ = connection;
+    pending_mobile_request_ = request;
+    pending_mobile_request_ready_ = true;
+    portEXIT_CRITICAL(&mobile_companion_mux_);
+    notify_work_ready();
+    return 0;
+  }();
+  arm_ble_tx_grace(conn_handle);
+  leave_management_callback();
+  return result;
+}
+
 int BleHidTransport::handle_config_access(std::uint16_t conn_handle,
                                           std::uint16_t attr_handle,
                                           ble_gatt_access_ctxt* ctxt) {
@@ -3190,6 +3434,20 @@ esp_err_t BleHidTransport::register_config_service() {
   rc = ble_gatts_add_svcs(kConfigServices);
   if (rc != 0) {
     ESP_LOGE(kTag, "ble_gatts_add_svcs config service failed: %d", rc);
+    return ESP_FAIL;
+  }
+  return ESP_OK;
+}
+
+esp_err_t BleHidTransport::register_mobile_companion_service() {
+  int rc = ble_gatts_count_cfg(kMobileCompanionServices);
+  if (rc != 0) {
+    ESP_LOGE(kTag, "mobile companion service count failed: %d", rc);
+    return ESP_FAIL;
+  }
+  rc = ble_gatts_add_svcs(kMobileCompanionServices);
+  if (rc != 0) {
+    ESP_LOGE(kTag, "mobile companion service registration failed: %d", rc);
     return ESP_FAIL;
   }
   return ESP_OK;

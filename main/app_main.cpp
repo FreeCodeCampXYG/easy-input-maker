@@ -3080,6 +3080,16 @@ bool handle_input_event(const easy_input::InputEvent& event, void* context) {
     ESP_LOGD(kTag, "%s %s", name, phase_name(event.phase));
   }
 
+  // Mirror 只复制已经去抖的实体输入，绝不改变原 HID 路由；Exclusive
+  // 仅在主任务先确认没有旧组合键后才会返回 true，失效会立即回到下面的基线。
+  if (app->ble.publish_mobile_input(event.input,
+                                    event.phase,
+                                    event.encoder_step,
+                                    event.order_sequence,
+                                    now)) {
+    return true;
+  }
+
   if (encoder_turn) {
     // Resolve the 3-second boundary before interpreting this detent, but only
     // while the physical switch is still down. A release that is settling must
@@ -3155,6 +3165,27 @@ bool handle_input_event(const easy_input::InputEvent& event, void* context) {
   handle_ptt_keyboard_audio(app, action, event.phase, name);
   dispatch_firmware_event(app, event.input, firmware_event);
   return true;
+}
+
+void apply_pending_mobile_companion_request(AppContext* app, std::uint32_t now_ms) {
+  ai_keyboard::MobileCompanionRequest request;
+  ai_keyboard::MobileCompanionConnection connection;
+  if (!app->ble.take_pending_mobile_request(&request, &connection)) {
+    return;
+  }
+  bool no_bridged_hotkey = true;
+  for (const auto& delivery : app->bridged_hotkey_deliveries) {
+    if (delivery.pending() || delivery.desired_pressed() || delivery.accepted_pressed()) {
+      no_bridged_hotkey = false;
+      break;
+    }
+  }
+  // 切入 Exclusive 前拒绝任何未松开的键或待投递热键，避免手机会话截断
+  // 旧 PC 组合键；失败时不清状态，原 HID 路由继续保留。
+  const bool exclusive_transition_safe = app->held_keyboard.empty() &&
+                                         no_bridged_hotkey &&
+                                         !encoder_text_selection_owns_keyboard_transport(app);
+  app->ble.resolve_mobile_request(connection, request, exclusive_transition_safe, now_ms);
 }
 
 void load_stored_config(AppContext* app) {
@@ -4090,6 +4121,7 @@ extern "C" void app_main(void) {
     apply_pending_music_sequence(&app);
 #endif
     apply_pending_agent_status(&app, millis());
+    apply_pending_mobile_companion_request(&app, millis());
     reconcile_keyboard_transport_lifetimes(&app);
     // BLE profile preparation above may take long enough for both edges of a
     // short click to arrive. Poll with a fresh timestamp so queued ISR
