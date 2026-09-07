@@ -121,6 +121,9 @@ class BleHidTransport {
   int handle_config_access(std::uint16_t conn_handle,
                            std::uint16_t attr_handle,
                            ble_gatt_access_ctxt* ctxt);
+  int handle_mobile_companion_access(std::uint16_t conn_handle,
+                                     std::uint16_t attr_handle,
+                                     ble_gatt_access_ctxt* ctxt);
   bool take_pending_mobile_request(ai_keyboard::MobileCompanionRequest* request,
                                    ai_keyboard::MobileCompanionConnection* connection);
   void resolve_mobile_request(const ai_keyboard::MobileCompanionConnection& connection,
@@ -139,9 +142,6 @@ class BleHidTransport {
   esp_err_t ensure_identity_set();
   esp_err_t register_config_service();
   esp_err_t register_mobile_companion_service();
-  int handle_mobile_companion_access(std::uint16_t conn_handle,
-                                     std::uint16_t attr_handle,
-                                     ble_gatt_access_ctxt* ctxt);
   void begin_mobile_endpoint_lifetime(std::uint16_t conn_handle);
   void end_mobile_endpoint_lifetime(std::uint16_t conn_handle);
   bool send_mobile_companion_frame(
