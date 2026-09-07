@@ -10,7 +10,7 @@
 - ACK UUID：`7d2f4d10-6f6b-4a2d-8b01-6d4653320013`，Notify。
 - Event UUID：`7d2f4d10-6f6b-4a2d-8b01-6d4653320014`，Notify。
 
-所有帧固定 16 字节、小端：`0xE1 | version | type | command | request_id:u16 | payload_length:u8 | flags:u8 | generation:u32 | payload[2] | crc16:u16`。`payload[0]` 为能力，`payload[1]` 为 lease 秒数；CRC16-IBM 覆盖偏移 0..13。Control 支持申请、续租、释放、能力查询及配置读写；ACK 返回结果和能力。未知版本、长度、枚举值或 CRC 必须拒绝。
+所有帧固定 16 字节、小端：`0xE1 | version | type | command | request_id:u16 | payload_length:u8 | flags:u8 | generation:u32 | payload[2] | crc16:u16`。`payload[0]` 为能力，`payload[1]` 为 lease 秒数；CRC16-IBM 覆盖偏移 0..13。首次申请/能力查询 generation 必须为 0，ACK 返回 session generation；续租/释放必须回传该 session generation。Control 支持申请、续租、释放、能力查询及配置读写；ACK 返回结果和能力。未知版本、长度、枚举值或 CRC 必须拒绝。
 
 ## 会话与安全边界
 
