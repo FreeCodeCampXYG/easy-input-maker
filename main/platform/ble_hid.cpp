@@ -20,8 +20,13 @@
 #include "keyboard/config_status.h"
 #include "keyboard/host_action_protocol.h"
 #include "keyboard/hid_keycode.h"
+#include "keyboard/mobile_companion_identity.h"
 #include "platform/nvs_store.h"
 #include "sdkconfig.h"
+
+extern "C" {
+#include "esp_random.h"
+}
 
 extern "C" {
 #include "host/ble_att.h"
