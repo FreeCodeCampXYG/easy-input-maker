@@ -1549,8 +1549,8 @@ esp_err_t SpeakerOutput::play_music_frames(std::uint32_t generation,
     music_synth_.render(frame, frame_capacity);
     const auto volume = music_volume_percent();
     for (std::size_t index = 0; index < frame_capacity; ++index) {
-      frame[index] = static_cast<std::int16_t>(
-          (static_cast<std::int32_t>(frame[index]) * volume) / 100);
+      // 演示增益只作用于最终 PCM，保持音符/节拍/队列和 I2S owner 不变；饱和裁剪避免放大后回绕失真。
+      frame[index] = ai_keyboard::apply_music_output_gain(frame[index], volume);
     }
     const auto write_result = write_samples(frame, frame_capacity);
     if (write_result != ESP_OK) {

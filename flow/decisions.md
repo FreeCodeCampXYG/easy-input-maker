@@ -91,4 +91,5 @@
 - 固定 16 字节帧增加 magic、版本、类型、命令、request id、payload 长度、flags、generation 和 CRC16；当前固件只授予 Mirror，Exclusive 先拒绝。
 - 手机协议状态独立于 HID owner 和 legacy AppCommand；App 未连接、未 bonded、未加密、服务不完整、超时或断线时不改变 PC HID。
 - Config 分片末两字节承载数据，整段 JSON CRC 放在分片头；手机绑定默认是 Mirror 会话 Overlay，不能覆盖设备全局默认键位。
+- Device Identity 独立为只读 8 字节随机短 ID；事件缓存只保留固定窗口，断线恢复必须显式查询且不能阻塞物理输入。
 - 配置读写使用独立 Config 分片而非截断 JSON；手机绑定默认是 Mirror 会话 Overlay，不能覆盖设备全局默认键位。

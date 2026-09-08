@@ -4,6 +4,7 @@
 
 #include "esp_log.h"
 #include "keyboard/board_pins.h"
+#include "keyboard/mobile_companion_identity.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -21,6 +22,7 @@ constexpr const char* kPrefsGattSchemaRevisionKey = "gatt_rev_v1";
 constexpr const char* kPrefsHostPlatformKey = "host_os_v1";
 constexpr const char* kPrefsMusicConfigKey = "music_v1";
 constexpr const char* kPrefsSongKey = "song_v1";
+constexpr const char* kPrefsMobileDeviceIdKey = "mobile_id_v1";
 
 const char* prefs_config_key() {
 #if defined(EASY_INPUT_BOARD_V2)
@@ -377,6 +379,46 @@ bool NvsConfigStore::save_song(
   nvs_handle_t handle = 0;
   esp_err_t err = nvs_open(kPrefsNamespace, NVS_READWRITE, &handle);
   if (err == ESP_OK) err = nvs_set_blob(handle, kPrefsSongKey, payload.data(), payload.size());
+  if (err == ESP_OK) err = nvs_commit(handle);
+  if (handle != 0) nvs_close(handle);
+  set_error(out_err, err);
+  return err == ESP_OK;
+}
+
+bool NvsConfigStore::load_mobile_device_id(std::string* id,
+                                            esp_err_t* out_err) const {
+  if (id == nullptr) {
+    set_error(out_err, ESP_ERR_INVALID_ARG);
+    return false;
+  }
+  nvs_handle_t handle = 0;
+  esp_err_t err = nvs_open(kPrefsNamespace, NVS_READONLY, &handle);
+  std::size_t required = 0;
+  if (err == ESP_OK) err = nvs_get_str(handle, kPrefsMobileDeviceIdKey, nullptr, &required);
+  if (err == ESP_OK && required > 1 && required <= ai_keyboard::kMobileCompanionDeviceIdLen + 1) {
+    std::string value(required, '\0');
+    err = nvs_get_str(handle, kPrefsMobileDeviceIdKey, value.data(), &required);
+    if (err == ESP_OK && ai_keyboard::mobile_companion_device_id_valid(value.c_str())) {
+      value.resize(required - 1);
+      *id = value;
+    } else if (err == ESP_OK) {
+      err = ESP_ERR_INVALID_RESPONSE;
+    }
+  }
+  if (handle != 0) nvs_close(handle);
+  set_error(out_err, err);
+  return err == ESP_OK && !id->empty();
+}
+
+bool NvsConfigStore::save_mobile_device_id(const std::string& id,
+                                            esp_err_t* out_err) const {
+  if (!ai_keyboard::mobile_companion_device_id_valid(id)) {
+    set_error(out_err, ESP_ERR_INVALID_ARG);
+    return false;
+  }
+  nvs_handle_t handle = 0;
+  esp_err_t err = nvs_open(kPrefsNamespace, NVS_READWRITE, &handle);
+  if (err == ESP_OK) err = nvs_set_str(handle, kPrefsMobileDeviceIdKey, id.c_str());
   if (err == ESP_OK) err = nvs_commit(handle);
   if (handle != 0) nvs_close(handle);
   set_error(out_err, err);

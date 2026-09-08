@@ -32,5 +32,14 @@ int main() {
       assert(result.json == json);
     }
   }
+  MobileCompanionConfigFragment timeout{};
+  timeout.request_id = 10;
+  timeout.chunk_index = 0;
+  timeout.total_chunks = 2;
+  timeout.total_len = 3;
+  timeout.payload_crc = 1;
+  timeout.data_len = 2;
+  assert(assembler.receive(timeout, 100).result == MobileCompanionConfigResult::Pending);
+  assert(assembler.receive(timeout, 10201).result == MobileCompanionConfigResult::Invalid);
   return 0;
 }

@@ -28,6 +28,7 @@
 #include "keyboard/keymap.h"
 #include "keyboard/mobile_companion_protocol.h"
 #include "keyboard/mobile_companion_session.h"
+#include "keyboard/mobile_companion_event_cache.h"
 
 struct ble_gap_event;
 struct ble_gatt_access_ctxt;
@@ -136,6 +137,8 @@ class BleHidTransport {
                             std::int32_t encoder_step,
                             std::uint32_t input_sequence,
                             std::uint32_t now_ms);
+  std::string mobile_device_id() const;
+  std::uint32_t mobile_companion_dropped_event_count() const;
 
  private:
   esp_err_t init_low_level();
@@ -281,9 +284,11 @@ class BleHidTransport {
       mobile_endpoint_lifetimes_{};
   std::uint32_t mobile_endpoint_generation_counter_ = 0;
   ai_keyboard::MobileCompanionSession mobile_companion_session_;
+  ai_keyboard::MobileCompanionEventCache mobile_event_cache_;
   ai_keyboard::MobileCompanionRequest pending_mobile_request_{};
   ai_keyboard::MobileCompanionConnection pending_mobile_connection_{};
   bool pending_mobile_request_ready_ = false;
+  mutable std::string mobile_device_id_;
 
   mutable portMUX_TYPE pending_agent_status_mux_ = portMUX_INITIALIZER_UNLOCKED;
   ai_keyboard::AgentStatusCommand pending_agent_status_{};

@@ -63,6 +63,9 @@ bool encode_mobile_companion_request(
   put32(request.generation, out->data() + 8);
   (*out)[12] = static_cast<std::uint8_t>(request.capability);
   (*out)[13] = static_cast<std::uint8_t>(request.lease_ms / 1000U);
+  if (request.command == MobileCompanionCommand::QueryEvents) {
+    put16(request.replay_after_sequence, out->data() + 12);
+  }
   finish(out);
   return true;
 }
@@ -74,7 +77,7 @@ bool decode_mobile_companion_request(const std::uint8_t* data,
       data[0] != kMobileCompanionMagic ||
       data[1] != kMobileCompanionProtocolVersion ||
       data[2] != static_cast<std::uint8_t>(MobileCompanionFrameType::Command) ||
-      data[3] < 1 || data[3] > 6 || data[6] > 2 ||
+      data[3] < 1 || data[3] > 7 || data[6] > 2 ||
       get16(data + 14) != mobile_companion_crc16(data, 14)) {
     return false;
   }
@@ -85,6 +88,7 @@ bool decode_mobile_companion_request(const std::uint8_t* data,
   out->generation = get32(data + 8);
   out->capability = static_cast<MobileCompanionCapability>(data[12]);
   out->lease_ms = static_cast<std::uint16_t>(data[13]) * 1000U;
+  out->replay_after_sequence = get16(data + 12);
   return out->capability <= MobileCompanionCapability::Exclusive &&
          (out->command == MobileCompanionCommand::QueryCapability ||
           out->command == MobileCompanionCommand::ReadConfig ||
@@ -135,10 +139,11 @@ bool encode_mobile_companion_input_event(
   (*out)[2] = static_cast<std::uint8_t>(MobileCompanionFrameType::Event);
   put16(event.event_id, out->data() + 4);
   (*out)[6] = 2;
-  (*out)[7] = event.flags | (event.phase == InputPhase::Pressed ? 1U : 2U);
+  (*out)[7] = static_cast<std::uint8_t>(
+      event.flags | (event.phase == InputPhase::Pressed ? 1U : 2U) |
+      (static_cast<std::uint8_t>(event.input) << 2));
   put32(event.generation, out->data() + 8);
-  (*out)[12] = static_cast<std::uint8_t>(event.input);
-  (*out)[13] = static_cast<std::uint8_t>(event.sequence);
+  put16(static_cast<std::uint16_t>(event.sequence), out->data() + 12);
   finish(out);
   return true;
 }

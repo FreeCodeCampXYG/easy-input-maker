@@ -38,6 +38,8 @@ idf_component_register(
     "src/mobile_companion_session.cpp"
     "src/mobile_companion_config.cpp"
     "src/mobile_companion_binding.cpp"
+    "src/mobile_companion_event_cache.cpp"
+    "src/mobile_companion_identity.cpp"
     "src/platform_selection.cpp"
     "src/peripheral_power_lease.cpp"
     "src/power_cycle.cpp"

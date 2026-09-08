@@ -18,6 +18,9 @@ void volume_is_bounded_for_large_encoder_steps() {
   assert(ai_keyboard::adjusted_music_volume_percent(65, 5) == 70);
   assert(ai_keyboard::adjusted_music_volume_percent(5, -100) == 5);
   assert(ai_keyboard::adjusted_music_volume_percent(100, 100) == 100);
+  assert(ai_keyboard::apply_music_output_gain(16000, 100) == 20000);
+  assert(ai_keyboard::apply_music_output_gain(32767, 100) == 32767);
+  assert(ai_keyboard::apply_music_output_gain(-32768, 100) == -32768);
 }
 
 void final_key_state_preserves_a_dropped_release() {

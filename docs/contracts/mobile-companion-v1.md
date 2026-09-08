@@ -9,6 +9,7 @@
 - Capability UUID：`7d2f4d10-6f6b-4a2d-8b01-6d4653320012`，Read。
 - ACK UUID：`7d2f4d10-6f6b-4a2d-8b01-6d4653320013`，Notify。
 - Event UUID：`7d2f4d10-6f6b-4a2d-8b01-6d4653320014`，Notify。
+- Identity UUID：`7d2f4d10-6f6b-4a2d-8b01-6d4653320015`，Read；返回 8 字节大写短 ID，不返回 MAC、Wi-Fi 或真实序列号。旧版 App 不识别该特征时仍可按原五特征降级，但不得把设备名当作身份。
 
 所有帧固定 16 字节、小端：`0xE1 | version | type | command | request_id:u16 | payload_length:u8 | flags:u8 | generation:u32 | payload[2] | crc16:u16`。`payload[0]` 为能力，`payload[1]` 为 lease 秒数；CRC16-IBM 覆盖偏移 0..13。首次申请/能力查询 generation 必须为 0，ACK 返回 session generation；续租/释放必须回传该 session generation。Control 支持申请、续租、释放、能力查询及配置读写；ACK 返回结果和能力。未知版本、长度、枚举值或 CRC 必须拒绝。
 
@@ -26,16 +27,12 @@
 - 分片必须从 0 开始严格按序；重复分片返回 Duplicate，乱序返回 OutOfOrder，CRC/长度错误或 10 秒超时丢弃临时缓冲，当前配置保持不变。只有完整解析和持久化成功才确认写入。
 - 手机绑定是 Mirror 会话 Overlay，不改设备全局默认键位。action kind 沿用 `Disabled`、`VoicePttHold`、`EditPttHold`、`Hotkey`、`FixedText`、`OpenHistory`、`Settings`、`HostAction`、`SelectAll`、`Copy`、`Paste`、`Undo`。
 - `MobileBindingOverlay` 为每个 `InputId` 保存独立 action/参数；按下/释放沿用既有语义，平台差异只存在于 action 参数。`FixedText` 最大 512 字节，非法 action 或超长文本拒绝。
-- 事件仅对 MirrorActive 的 KEY1/KEY3/KEY8 发送，携带 event_id、input_id、按下/释放、generation、sequence 和对应 flags；释放、过期、断线或 generation 变化后停止发送。
+- 事件仅对 MirrorActive 的 KEY1/KEY3/KEY8 发送：`event_id:u16` 在 4..5，flags 在 7（bit0/1=按下/释放，bit2..=input_id 与能力 flags），generation 在 8..11，sequence_low16 在 12..13，14..15 为 CRC。释放、过期、断线或 generation 变化后停止发送。
+- `QueryEvents` 可在重连后请求有限恢复窗口：generation 必须匹配当前会话，payload 两字节携带最近确认 sequence 的低 16 位；缓存固定 32 条，溢出丢弃最旧事件并增加计数。旧 generation、窗口溢出、重复或乱序均返回明确结果，不阻塞实体输入。
+
+Device Identity 在首次读取时生成 8 字节随机大写短 ID 并保存 NVS；读取失败不回退到 MAC、Wi-Fi 或芯片真实序列号。旧版 App 不认识 Identity 特征时仍可按原五个 UUID 工作。
 
 样例（末两字节 CRC 需按偏移 0..13 重新计算）：Mirror 申请 `E1 01 01 01 01 00 02 00 00 00 00 00 01 0F CRC16LE`；能力查询 `E1 01 01 04 02 00 02 00 00 00 00 00 00 00 CRC16LE`。
-
-## 配置与按键绑定
-
-- `WriteConfig` / `ReadConfig` 使用 Config frame 分片：命令、request id、chunk index、total chunks、total length、payload CRC 和每片最多 2 个 UTF-8 原始字节；外层仍带 magic/version/type/CRC。最大配置 2048 字节，禁止截断字符串。
-- 分片必须从 0 开始严格按序；重复分片返回 Duplicate，乱序返回 OutOfOrder，CRC/长度错误或 10 秒超时丢弃临时缓冲，当前配置保持不变。只有完整解析和持久化成功才确认写入。
-- 手机绑定是 Mirror 会话 Overlay，不改设备全局默认键位。action kind 沿用 Disabled、VoicePttHold、EditPttHold、Hotkey、FixedText、OpenHistory、Settings、HostAction、SelectAll、Copy、Paste、Undo。
-- 事件仅对 MirrorActive 的 KEY1/KEY3/KEY8 发送，携带 event_id、input_id、按下/释放、generation、sequence 和对应 flags；释放、过期、断线或 generation 变化后停止发送。
 
 ## 兼容性与证据
 

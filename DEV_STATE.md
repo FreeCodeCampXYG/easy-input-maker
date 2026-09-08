@@ -6,8 +6,10 @@
 - Mirror 仅复制授权的 KEY1/KEY3/KEY8 去抖事件，PC HID 保持原路由；Exclusive 当前拒绝，断线/过期/代际变化 fail-closed。
 - Mobile Companion Config 分片合同已补齐：固定 16-byte 分片、最大 2048 字节、严格顺序、CRC 和 10 秒临时装配超时；手机绑定设计为 Mirror 会话 Overlay，完整校验/持久化前保留旧全局配置。
 - 新增 `MobileBindingOverlay` 纯逻辑模型与 FixedText 512 字节校验；不会修改设备默认 Keymap。配置分片当前完成合同/装配测试，尚未接入真实 NVS 写入和 GATT 配置回执。
+- 新增有限事件恢复缓存（32 条、generation/sequence、溢出计数）和只读 8 字节随机短 ID NVS 存储；Identity 特征不暴露 MAC/Wi-Fi/真实序列号。QueryEvents 已接入 GATT 控制响应并回放有限窗口。
+- Mirror 事件已接入固定缓存并支持 QueryEvents 回放窗口；音频最终 PCM 使用 125% 演示增益和饱和裁剪，未改音量旋钮范围、I2S owner 或 GPIO8 电源生命周期。
 - CCCD 产品预算随两个 Notify 特征值从每 peer 8/总 32 升为 10/总 40，GATT schema revision 升为 6；已有配对订阅通过既有迁移路径失效重建。
-- 验证：完整宿主 CTest 70/70 和 `git diff --check` 通过。本机当前未加载 ESP-IDF，未取得本轮目标固件构建证据；CI、EasyInputApp 联调、烧录和实板验证均待完成。
+- 验证：完整宿主 CTest 72/72 和 `git diff --check` 通过。本机当前未加载 ESP-IDF，未取得本轮目标固件构建证据；CI、EasyInputApp 联调、烧录和实板验证均待完成。
 
 ## 2026-09-06：本次对话核对留痕
 

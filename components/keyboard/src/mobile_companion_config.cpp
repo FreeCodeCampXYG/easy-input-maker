@@ -6,7 +6,12 @@
 namespace ai_keyboard {
 
 MobileCompanionConfigReceiveResult MobileCompanionConfigAssembler::receive(
-    const MobileCompanionConfigFragment& fragment) {
+    const MobileCompanionConfigFragment& fragment,
+    std::uint32_t now_ms) {
+  if (active_ && now_ms != 0 && now_ms - last_activity_ms_ > 10000U) {
+    reset();
+    return {MobileCompanionConfigResult::Invalid, {}};
+  }
   if (fragment.request_id == 0 || fragment.total_chunks == 0 ||
       fragment.chunk_index >= fragment.total_chunks || fragment.total_len == 0 ||
       fragment.total_len > kMobileCompanionConfigMaxBytes ||
@@ -27,6 +32,7 @@ MobileCompanionConfigReceiveResult MobileCompanionConfigAssembler::receive(
     expected_crc_ = fragment.payload_crc;
     active_ = true;
   }
+  if (now_ms != 0) last_activity_ms_ = now_ms;
   if (fragment.request_id != request_id_ || fragment.total_chunks != total_chunks_ ||
       fragment.total_len != total_len_ || fragment.payload_crc != expected_crc_) {
     return {MobileCompanionConfigResult::Invalid, {}};
@@ -57,6 +63,7 @@ MobileCompanionConfigReceiveResult MobileCompanionConfigAssembler::receive(
 void MobileCompanionConfigAssembler::reset() {
   buffer_.fill(0);
   request_id_ = total_chunks_ = total_len_ = expected_crc_ = next_chunk_ = received_len_ = 0;
+  last_activity_ms_ = 0;
   active_ = false;
 }
 

@@ -13,6 +13,9 @@ namespace ai_keyboard {
 std::optional<std::size_t> music_key_index_for_input(InputId input);
 std::uint8_t adjusted_music_volume_percent(std::uint8_t current,
                                            int delta_percent);
+std::int16_t apply_music_output_gain(std::int16_t sample,
+                                     std::uint8_t volume_percent,
+                                     std::uint8_t gain_percent = 125);
 std::uint8_t updated_music_pressed_mask(std::uint8_t current,
                                         std::size_t key_index,
                                         bool pressed);

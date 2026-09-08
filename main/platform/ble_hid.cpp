@@ -314,6 +314,9 @@ const ble_uuid128_t kMobileCompanionAckUuid =
 const ble_uuid128_t kMobileCompanionEventUuid =
     BLE_UUID128_INIT(0x14, 0x00, 0x32, 0x53, 0x46, 0x6D, 0x01, 0x8B,
                      0x2D, 0x4A, 0x6B, 0x6F, 0x10, 0x4D, 0x2F, 0x7D);
+const ble_uuid128_t kMobileCompanionIdentityUuid =
+    BLE_UUID128_INIT(0x15, 0x00, 0x32, 0x53, 0x46, 0x6D, 0x01, 0x8B,
+                     0x2D, 0x4A, 0x6B, 0x6F, 0x10, 0x4D, 0x2F, 0x7D);
 
 BleHidTransport* s_transport = nullptr;
 std::uint16_t s_config_status_handle = 0;
@@ -321,6 +324,7 @@ std::uint16_t s_agent_status_write_handle = 0;
 std::uint16_t s_mobile_companion_ack_handle = 0;
 std::uint16_t s_mobile_companion_event_handle = 0;
 std::uint16_t s_mobile_companion_capability_handle = 0;
+std::uint16_t s_mobile_companion_identity_handle = 0;
 
 bool is_bonded_peer(
     const ble_addr_t& peer,
@@ -632,16 +636,24 @@ const ble_gatt_svc_def kConfigServices[] = {
 const ble_gatt_chr_def kMobileCompanionCharacteristics[] = {
     {reinterpret_cast<const ble_uuid_t*>(&kMobileCompanionControlUuid),
      mobile_companion_access_callback, nullptr, nullptr,
-     BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP, 0, nullptr, nullptr},
+     BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP | BLE_GATT_CHR_F_WRITE_ENC,
+     0, nullptr, nullptr},
     {reinterpret_cast<const ble_uuid_t*>(&kMobileCompanionCapabilityUuid),
-     mobile_companion_access_callback, nullptr, nullptr, BLE_GATT_CHR_F_READ, 0,
+     mobile_companion_access_callback, nullptr, nullptr,
+     BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC, 0,
      &s_mobile_companion_capability_handle, nullptr},
     {reinterpret_cast<const ble_uuid_t*>(&kMobileCompanionAckUuid),
-     mobile_companion_access_callback, nullptr, nullptr, BLE_GATT_CHR_F_NOTIFY, 0,
+     mobile_companion_access_callback, nullptr, nullptr,
+     BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ_ENC, 0,
      &s_mobile_companion_ack_handle, nullptr},
     {reinterpret_cast<const ble_uuid_t*>(&kMobileCompanionEventUuid),
-     mobile_companion_access_callback, nullptr, nullptr, BLE_GATT_CHR_F_NOTIFY, 0,
+     mobile_companion_access_callback, nullptr, nullptr,
+     BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ_ENC, 0,
      &s_mobile_companion_event_handle, nullptr},
+    {reinterpret_cast<const ble_uuid_t*>(&kMobileCompanionIdentityUuid),
+     mobile_companion_access_callback, nullptr, nullptr,
+     BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC, 0,
+     &s_mobile_companion_identity_handle, nullptr},
     {},
 };
 
@@ -792,6 +804,8 @@ esp_err_t BleHidTransport::begin() {
     return ESP_ERR_INVALID_STATE;
   }
   s_transport = this;
+  // 首次启动在 owner task 生成并持久化短 ID，避免在 NimBLE GATT 回调中做 NVS 写入。
+  (void)mobile_device_id();
 
   std::uint8_t stored_gatt_schema_revision = 0;
   esp_err_t gatt_schema_err = ESP_OK;
@@ -1978,6 +1992,22 @@ void BleHidTransport::resolve_mobile_request(
   if (ai_keyboard::encode_mobile_companion_ack(ack, &frame)) {
     (void)send_mobile_companion_frame(connection, s_mobile_companion_ack_handle, frame);
   }
+  if (ack.result == ai_keyboard::MobileCompanionResult::Accepted &&
+      request.command == ai_keyboard::MobileCompanionCommand::QueryEvents) {
+    std::array<ai_keyboard::MobileCompanionInputEvent,
+               ai_keyboard::kMobileCompanionEventCacheCapacity> replay{};
+    // QueryEvents 在 16-byte v1 帧中用 payload[1]（lease_ms 字段）携带
+    // 最近一次已确认 sequence 的低 16 位；generation 仍只用于会话校验。
+    portENTER_CRITICAL(&mobile_companion_mux_);
+    const auto count = mobile_event_cache_.copy_after(
+        connection.generation, request.replay_after_sequence, &replay);
+    portEXIT_CRITICAL(&mobile_companion_mux_);
+    for (std::size_t index = 0; index < count; ++index) {
+      if (ai_keyboard::encode_mobile_companion_input_event(replay[index], &frame)) {
+        (void)send_mobile_companion_frame(connection, s_mobile_companion_event_handle, frame);
+      }
+    }
+  }
 }
 
 bool BleHidTransport::publish_mobile_input(ai_keyboard::InputId input,
@@ -2019,11 +2049,21 @@ bool BleHidTransport::publish_mobile_input(ai_keyboard::InputId input,
   if (input == ai_keyboard::InputId::Key3) event.flags = ai_keyboard::kMobileFlagKey3Rewrite;
   if (input == ai_keyboard::InputId::Key8) event.flags = ai_keyboard::kMobileFlagKey8Shortcut;
   (void)encoder_step;
+  portENTER_CRITICAL(&mobile_companion_mux_);
+  const auto cache_result = mobile_event_cache_.push(event);
+  portEXIT_CRITICAL(&mobile_companion_mux_);
+  if (cache_result == ai_keyboard::MobileCompanionReplayResult::WindowOverflow) {
+    ESP_LOGW(kTag, "mobile companion event cache overflow; oldest event dropped");
+  }
   std::array<std::uint8_t, ai_keyboard::kMobileCompanionFrameLen> frame{};
   if (ai_keyboard::encode_mobile_companion_input_event(event, &frame)) {
     (void)send_mobile_companion_frame(connection, s_mobile_companion_event_handle, frame);
   }
   return exclusive;
+}
+
+std::uint32_t BleHidTransport::mobile_companion_dropped_event_count() const {
+  return mobile_event_cache_.dropped_count();
 }
 
 void BleHidTransport::publish_status_json(const std::string& status_json) {
@@ -3212,6 +3252,12 @@ int BleHidTransport::handle_mobile_companion_access(
   }
   const int result = [&]() -> int {
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+      if (attr_handle == s_mobile_companion_identity_handle) {
+        const auto id = mobile_device_id();
+        return id.empty() || os_mbuf_append(ctxt->om, id.data(), id.size()) != 0
+                   ? BLE_ATT_ERR_INSUFFICIENT_RES
+                   : 0;
+      }
       if (attr_handle == s_mobile_companion_capability_handle) {
         const int auth_error = config_write_authorization_error(conn_handle);
         if (auth_error != 0) {
@@ -3269,6 +3315,20 @@ int BleHidTransport::handle_mobile_companion_access(
   arm_ble_tx_grace(conn_handle);
   leave_management_callback();
   return result;
+}
+
+std::string BleHidTransport::mobile_device_id() const {
+  if (!mobile_device_id_.empty()) return mobile_device_id_;
+  NvsConfigStore store;
+  esp_err_t err = ESP_OK;
+  if (store.load_mobile_device_id(&mobile_device_id_, &err)) return mobile_device_id_;
+  constexpr char kAlphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  std::array<std::uint8_t, ai_keyboard::kMobileCompanionDeviceIdLen> random{};
+  esp_fill_random(random.data(), random.size());
+  mobile_device_id_.clear();
+  for (const auto value : random) mobile_device_id_.push_back(kAlphabet[value % (sizeof(kAlphabet) - 1)]);
+  if (!store.save_mobile_device_id(mobile_device_id_, &err)) mobile_device_id_.clear();
+  return mobile_device_id_;
 }
 
 int BleHidTransport::handle_config_access(std::uint16_t conn_handle,

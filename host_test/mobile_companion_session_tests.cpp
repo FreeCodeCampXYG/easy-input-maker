@@ -16,6 +16,11 @@ int main() {
   assert(session.handle(first, request, true, true, true, 0).result == MobileCompanionResult::Accepted);
   assert(session.state() == MobileCompanionSessionState::MirrorActive);
   assert(session.handle(reused, request, true, true, true, 1).result == MobileCompanionResult::Busy);
+  MobileCompanionRequest replay = request;
+  replay.command = MobileCompanionCommand::QueryEvents;
+  replay.request_id = 2;
+  replay.generation = 999;
+  assert(session.handle(first, replay, true, true, true, 1).result == MobileCompanionResult::StaleGeneration);
   assert(session.expire(1000));
   assert(session.state() == MobileCompanionSessionState::Expired);
   assert(!session.mirror_active(first, 1001));

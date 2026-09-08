@@ -38,9 +38,15 @@ MobileCompanionAck MobileCompanionSession::handle(
     ack.result = MobileCompanionResult::Busy;
     return ack;
   }
-  state_ = bonded ? (service_ready ? MobileCompanionSessionState::ServiceReady
-                                   : MobileCompanionSessionState::Bonded)
-                  : MobileCompanionSessionState::Encrypted;
+  const bool active_same_connection =
+      connection_ == connection &&
+      state_ == MobileCompanionSessionState::MirrorActive &&
+      !deadline_reached(now_ms);
+  if (!active_same_connection) {
+    state_ = bonded ? (service_ready ? MobileCompanionSessionState::ServiceReady
+                                     : MobileCompanionSessionState::Bonded)
+                    : MobileCompanionSessionState::Encrypted;
+  }
   if (!bonded) {
     ack.result = MobileCompanionResult::NotBonded;
     return ack;
@@ -59,7 +65,13 @@ MobileCompanionAck MobileCompanionSession::handle(
     ack.result = MobileCompanionResult::SessionExpired;
     return ack;
   }
-  if (request.command == MobileCompanionCommand::QueryCapability) {
+  if (request.command == MobileCompanionCommand::QueryCapability ||
+      request.command == MobileCompanionCommand::QueryEvents) {
+    if (request.command == MobileCompanionCommand::QueryEvents &&
+        request.generation != session_generation_) {
+      ack.result = MobileCompanionResult::StaleGeneration;
+      return ack;
+    }
     ack.result = MobileCompanionResult::Accepted;
     ack.capability = MobileCompanionCapability::Mirror;
   } else if (request.command == MobileCompanionCommand::RequestMirror ||

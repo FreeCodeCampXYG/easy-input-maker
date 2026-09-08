@@ -21,7 +21,7 @@ inline constexpr std::size_t kMobileCompanionConfigFragmentDataLen = 2;
 enum class MobileCompanionFrameType : std::uint8_t { Command = 1, Ack = 2, Capability = 3, Event = 4, Config = 5 };
 enum class MobileCompanionCommand : std::uint8_t {
   RequestMirror = 1, ReleaseMirror = 2, RenewMirror = 3, QueryCapability = 4,
-  ReadConfig = 5, WriteConfig = 6,
+  ReadConfig = 5, WriteConfig = 6, QueryEvents = 7,
 };
 enum class MobileCompanionCapability : std::uint8_t { Unsupported = 0, Mirror = 1, Exclusive = 2 };
 enum class MobileCompanionResult : std::uint8_t {
@@ -52,6 +52,7 @@ struct MobileCompanionRequest {
   std::uint32_t generation = 0;
   MobileCompanionCapability capability = MobileCompanionCapability::Unsupported;
   std::uint16_t lease_ms = 0;
+  std::uint16_t replay_after_sequence = 0;
 };
 
 struct MobileCompanionAck {

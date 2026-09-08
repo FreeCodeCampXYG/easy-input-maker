@@ -44,6 +44,8 @@ class NvsConfigStore {
   bool save_song(
       const std::array<std::uint8_t, ai_keyboard::kMusicSequencePayloadLen>& payload,
       esp_err_t* out_err = nullptr) const;
+  bool load_mobile_device_id(std::string* id, esp_err_t* out_err = nullptr) const;
+  bool save_mobile_device_id(const std::string& id, esp_err_t* out_err = nullptr) const;
 };
 
 }  // namespace easy_input

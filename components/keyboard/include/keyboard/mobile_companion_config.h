@@ -20,7 +20,8 @@ struct MobileCompanionConfigReceiveResult {
 
 class MobileCompanionConfigAssembler {
  public:
-  MobileCompanionConfigReceiveResult receive(const MobileCompanionConfigFragment& fragment);
+  MobileCompanionConfigReceiveResult receive(const MobileCompanionConfigFragment& fragment,
+                                             std::uint32_t now_ms = 0);
   void reset();
   std::uint16_t request_id() const { return request_id_; }
   bool active() const { return active_; }
@@ -34,6 +35,7 @@ class MobileCompanionConfigAssembler {
   std::uint16_t next_chunk_ = 0;
   std::uint16_t received_len_ = 0;
   bool active_ = false;
+  std::uint32_t last_activity_ms_ = 0;
   std::uint16_t last_completed_request_id_ = 0;
   std::string last_completed_json_;
 };
