@@ -30,6 +30,7 @@ add_library(easy_input_keyboard_core
   ../components/keyboard/src/cold_boot_feedback.cpp
   ../components/keyboard/src/battery_estimator.cpp
   ../components/keyboard/src/ble_advertising_state.cpp
+  ../components/keyboard/src/ble_connection_lifecycle.cpp
   ../components/keyboard/src/ble_fixed_text_stream.cpp
   ../components/keyboard/src/ble_input_scheduler.cpp
   ../components/keyboard/src/ble_owner_recovery.cpp
@@ -103,6 +104,7 @@ add_keyboard_host_test(boot_led_sequence_tests)
 add_keyboard_host_test(cold_boot_feedback_tests)
 add_keyboard_host_test(battery_estimator_tests)
 add_keyboard_host_test(ble_advertising_state_tests)
+add_keyboard_host_test(ble_connection_lifecycle_tests)
 add_keyboard_host_test(ble_connection_profile_tests)
 add_keyboard_host_test(ble_management_gate_tests)
 add_keyboard_host_test(ble_input_scheduler_tests)

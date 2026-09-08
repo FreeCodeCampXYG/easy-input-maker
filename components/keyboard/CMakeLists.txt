@@ -8,6 +8,7 @@ idf_component_register(
     "src/cold_boot_feedback.cpp"
     "src/battery_estimator.cpp"
     "src/ble_advertising_state.cpp"
+    "src/ble_connection_lifecycle.cpp"
     "src/ble_fixed_text_stream.cpp"
     "src/ble_input_scheduler.cpp"
     "src/ble_owner_recovery.cpp"

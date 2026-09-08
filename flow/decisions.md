@@ -2,6 +2,11 @@
 
 > 这里只追加适合公开、对后续协作确有价值的过程决策。
 
+## 2026-09-08 · 辅助连接 stale handle 必须 fail-closed 回收
+- 背景：手机安全失败或超时断链可能漏掉及时的 DISCONNECT，旧 `control_conn_handle_` 会阻断已连接 HID 的广播恢复。
+- 决定：把控制句柄活性校验放在主任务广播 reconcile 前；查找失败时只回收辅助 endpoint 和 pending 状态，HID owner 继续由原 owner recovery 管理。
+- 边界：不改 HID owner 选择、不改变 PC HID 报告、HostAction/AppCommand 区分或 Mirror 旁路语义；宿主覆盖 stale、辅助断开和共享 HID 句柄，实板仍待验证。
+
 ## 2026-08-30 · 固件烧录产物采用标签化 manifest 合同
 - 背景：桌面烧录器不能从任意 GitHub 二进制或本机构建目录推断写入偏移和可信来源。
 - 决定：仅未来 `firmware-v*` 标签触发的固件 Release 生成 `firmware-manifest.json`、`SHA256SUMS.txt` 和 GitHub 构建溯源；清单固定声明 EasyInput V2.0、ESP32-S3、bootloader/分区表/应用三段及各自偏移和 SHA-256。

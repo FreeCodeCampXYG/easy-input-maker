@@ -15,6 +15,7 @@
 #include "esp_mac.h"
 #include "esp_timer.h"
 #include "keyboard/ble_persistence_policy.h"
+#include "keyboard/ble_connection_lifecycle.h"
 #include "keyboard/ble_status_wire.h"
 #include "keyboard/config_receiver.h"
 #include "keyboard/config_status.h"
@@ -2417,6 +2418,7 @@ void BleHidTransport::request_advertising_reconcile(bool force_restart) {
 
 ai_keyboard::BleAdvertisingMode
 BleHidTransport::desired_advertising_mode() {
+  reconcile_stale_control_connection();
   const bool config_window_active = connected_config_window_active();
   const bool owner_connected = connected();
 
@@ -2424,9 +2426,10 @@ BleHidTransport::desired_advertising_mode() {
   const auto active_conn_handle = active_conn_handle_;
   const auto control_conn_handle = control_conn_handle_;
   portEXIT_CRITICAL(&connection_power_mux_);
+  const ai_keyboard::BleConnectionRoutingSnapshot routing{
+      active_conn_handle, control_conn_handle};
   const bool separate_control_connected =
-      control_conn_handle != kInvalidConnHandle &&
-      control_conn_handle != active_conn_handle;
+      routing.separate_control_connected();
 
   if (config_window_active) {
     return owner_connected ? ai_keyboard::BleAdvertisingMode::ControlConfig
@@ -2972,6 +2975,23 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
           control_conn_handle_ = event->connect.conn_handle;
         }
         portEXIT_CRITICAL(&connection_power_mux_);
+        std::uint16_t logged_active_conn_handle = kInvalidConnHandle;
+        std::uint16_t logged_control_conn_handle = kInvalidConnHandle;
+        portENTER_CRITICAL(&connection_power_mux_);
+        logged_active_conn_handle = active_conn_handle_;
+        logged_control_conn_handle = control_conn_handle_;
+        portEXIT_CRITICAL(&connection_power_mux_);
+        ESP_LOGI(kTag,
+                 "GAP CONNECT state status=%d conn_handle=%u active=%u "
+                 "control=%u mobile_endpoint=%u mobile_endpoints=%u",
+                 event->connect.status,
+                 static_cast<unsigned>(event->connect.conn_handle),
+                 static_cast<unsigned>(logged_active_conn_handle),
+                 static_cast<unsigned>(logged_control_conn_handle),
+                 mobile_endpoint_for_connection(event->connect.conn_handle)
+                     ? 1U
+                     : 0U,
+                 static_cast<unsigned>(mobile_endpoint_count()));
         log_connection_desc("connected", event->connect.conn_handle);
         ESP_LOGI(kTag,
                  "GAP connection awaiting HID INPUT subscription conn_handle=%u",
@@ -2984,6 +3004,23 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
         request_advertising_reconcile();
       }
       if (event->connect.status != 0) {
+        std::uint16_t logged_active_conn_handle = kInvalidConnHandle;
+        std::uint16_t logged_control_conn_handle = kInvalidConnHandle;
+        portENTER_CRITICAL(&connection_power_mux_);
+        logged_active_conn_handle = active_conn_handle_;
+        logged_control_conn_handle = control_conn_handle_;
+        portEXIT_CRITICAL(&connection_power_mux_);
+        ESP_LOGI(kTag,
+                 "GAP CONNECT state status=%d conn_handle=%u active=%u "
+                 "control=%u mobile_endpoint=%u mobile_endpoints=%u",
+                 event->connect.status,
+                 static_cast<unsigned>(event->connect.conn_handle),
+                 static_cast<unsigned>(logged_active_conn_handle),
+                 static_cast<unsigned>(logged_control_conn_handle),
+                 mobile_endpoint_for_connection(event->connect.conn_handle)
+                     ? 1U
+                     : 0U,
+                 static_cast<unsigned>(mobile_endpoint_count()));
         directed_reconnect_active_.store(false, std::memory_order_release);
         slow_advertising_.store(false, std::memory_order_release);
         request_advertising_reconcile();
@@ -2996,6 +3033,7 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
                gap_event_name(event->type),
                event->disconnect.reason,
                static_cast<unsigned>(event->disconnect.conn.conn_handle));
+      const auto advertising_mode_before = advertising_state_.current_mode();
       portENTER_CRITICAL(&connection_power_mux_);
       const bool disconnected_active_handle =
           event->disconnect.conn.conn_handle == active_conn_handle_;
@@ -3005,6 +3043,16 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
         control_conn_handle_ = kInvalidConnHandle;
       }
       portEXIT_CRITICAL(&connection_power_mux_);
+      const bool disconnected_mobile_endpoint =
+          mobile_endpoint_for_connection(event->disconnect.conn.conn_handle);
+      ESP_LOGI(kTag,
+               "GAP DISCONNECT state conn_handle=%u active=%u control=%u "
+               "mobile_endpoint=%u advertising_before=%u",
+               static_cast<unsigned>(event->disconnect.conn.conn_handle),
+               disconnected_active_handle ? 1U : 0U,
+               disconnected_control_handle ? 1U : 0U,
+               disconnected_mobile_endpoint ? 1U : 0U,
+               static_cast<unsigned>(advertising_mode_before));
       end_config_endpoint_lifetime(event->disconnect.conn.conn_handle);
       end_mobile_endpoint_lifetime(event->disconnect.conn.conn_handle);
       forget_status_read_snapshot(event->disconnect.conn.conn_handle);
@@ -3026,6 +3074,11 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
       }
       slow_advertising_.store(false, std::memory_order_release);
       request_advertising_reconcile();
+      ESP_LOGI(kTag,
+               "GAP DISCONNECT cleanup conn_handle=%u advertising_reconcile=1 "
+               "mobile_endpoints=%u",
+               static_cast<unsigned>(event->disconnect.conn.conn_handle),
+               static_cast<unsigned>(mobile_endpoint_count()));
       return 0;
     }
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -3130,6 +3183,10 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
       if (event->enc_change.status == 0 && encrypted_active_handle) {
         cache_connection_status(event->enc_change.conn_handle, 0);
         request_connection_reconcile();
+      } else if (event->enc_change.status != 0 &&
+                 !encrypted_active_handle) {
+        clear_auxiliary_connection(event->enc_change.conn_handle,
+                                   "security_failure");
       }
       return 0;
     }
@@ -3221,13 +3278,22 @@ void BleHidTransport::begin_mobile_endpoint_lifetime(std::uint16_t conn_handle) 
       break;
     }
   }
+  bool table_full = false;
   if (selected != nullptr) {
     do {
       ++mobile_endpoint_generation_counter_;
     } while (mobile_endpoint_generation_counter_ == 0);
     *selected = {conn_handle, mobile_endpoint_generation_counter_};
+  } else {
+    table_full = true;
   }
   portEXIT_CRITICAL(&mobile_companion_mux_);
+  if (table_full) {
+    ESP_LOGW(kTag,
+             "Mobile Companion endpoint table full conn_handle=%u max=%u",
+             static_cast<unsigned>(conn_handle),
+             static_cast<unsigned>(mobile_endpoint_lifetimes_.size()));
+  }
 }
 
 void BleHidTransport::end_mobile_endpoint_lifetime(std::uint16_t conn_handle) {
@@ -3246,6 +3312,98 @@ void BleHidTransport::end_mobile_endpoint_lifetime(std::uint16_t conn_handle) {
     pending_mobile_request_ready_ = false;
   }
   portEXIT_CRITICAL(&mobile_companion_mux_);
+}
+
+std::size_t BleHidTransport::mobile_endpoint_count() const {
+  std::size_t count = 0;
+  portENTER_CRITICAL(&mobile_companion_mux_);
+  for (const auto& endpoint : mobile_endpoint_lifetimes_) {
+    if (endpoint.generation != 0) {
+      ++count;
+    }
+  }
+  portEXIT_CRITICAL(&mobile_companion_mux_);
+  return count;
+}
+
+bool BleHidTransport::mobile_endpoint_for_connection(
+    std::uint16_t conn_handle) const {
+  bool found = false;
+  portENTER_CRITICAL(&mobile_companion_mux_);
+  for (const auto& endpoint : mobile_endpoint_lifetimes_) {
+    if (endpoint.conn_handle == conn_handle && endpoint.generation != 0) {
+      found = true;
+      break;
+    }
+  }
+  portEXIT_CRITICAL(&mobile_companion_mux_);
+  return found;
+}
+
+void BleHidTransport::clear_auxiliary_connection(
+    std::uint16_t conn_handle, const char* reason) {
+  if (conn_handle == kInvalidConnHandle) {
+    return;
+  }
+
+  bool active = false;
+  bool control = false;
+  portENTER_CRITICAL(&connection_power_mux_);
+  active = active_conn_handle_ == conn_handle;
+  control = control_conn_handle_ == conn_handle;
+  if (!active && control) {
+    control_conn_handle_ = kInvalidConnHandle;
+  }
+  portEXIT_CRITICAL(&connection_power_mux_);
+
+  // HID owner 的安全失败仍由既有 owner recovery 处理；这里仅回收辅助
+  // GATT 连接，避免把手机链路的失败误当成 PC HID owner 切换。
+  if (active) {
+    return;
+  }
+
+  end_config_endpoint_lifetime(conn_handle);
+  end_mobile_endpoint_lifetime(conn_handle);
+  forget_status_read_snapshot(conn_handle);
+  ESP_LOGW(kTag,
+           "GAP auxiliary cleanup conn_handle=%u control=%u reason=%s "
+           "mobile_endpoints=%u",
+           static_cast<unsigned>(conn_handle),
+           control ? 1U : 0U,
+           reason == nullptr ? "" : reason,
+           static_cast<unsigned>(mobile_endpoint_count()));
+  request_advertising_reconcile(true);
+}
+
+void BleHidTransport::reconcile_stale_control_connection() {
+  std::uint16_t active_conn_handle = kInvalidConnHandle;
+  std::uint16_t control_conn_handle = kInvalidConnHandle;
+  portENTER_CRITICAL(&connection_power_mux_);
+  active_conn_handle = active_conn_handle_;
+  control_conn_handle = control_conn_handle_;
+  portEXIT_CRITICAL(&connection_power_mux_);
+
+  const ai_keyboard::BleConnectionRoutingSnapshot routing{
+      active_conn_handle, control_conn_handle};
+  if (!routing.separate_control_connected()) {
+    return;
+  }
+
+  ble_gap_conn_desc desc = {};
+  const int rc = ble_gap_conn_find(control_conn_handle, &desc);
+  if (rc == 0) {
+    return;
+  }
+  if (!routing.should_clear_stale_control(false)) {
+    return;
+  }
+
+  ESP_LOGW(kTag,
+           "GAP stale auxiliary control conn_handle=%u active=%u lookup_rc=%d",
+           static_cast<unsigned>(control_conn_handle),
+           static_cast<unsigned>(active_conn_handle),
+           rc);
+  clear_auxiliary_connection(control_conn_handle, "stale_handle");
 }
 
 int BleHidTransport::handle_mobile_companion_access(

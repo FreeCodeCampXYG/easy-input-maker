@@ -1,5 +1,12 @@
 # EasyInput Maker 开发状态
 
+## 2026-09-08：Mobile Companion 首连失败与广播恢复修复
+
+- 根因：辅助 BLE 连接成功时会暂存 `control_conn_handle_`；安全失败、App 超时或异常断链若漏掉 DISCONNECT，stale handle 会让广播策略误判为仍有控制连接。
+- 修改：主任务在计算广播模式前调用 NimBLE 活连接校验；失效句柄统一清理 CONFIG/Mobile endpoint、pending request 和状态快照，并强制触发 advertising reconcile。`ENC_CHANGE` 安全失败也走辅助连接清理；HID owner 仍由既有 owner recovery 处理。
+- 诊断：CONNECT/DISCONNECT/ENC_CHANGE 日志补充 active/control/mobile endpoint、security 状态和广播 reconcile 信息，便于对齐 Android 超时链路。
+- 验证：宿主全量 CTest 73/73 通过，新增 `ble_connection_lifecycle_tests`；本机未加载 ESP-IDF，固件 CI、Windows/macOS 互换实板连接和手机实测仍待验证。
+
 ## 2026-09-07：Mobile Companion v1（当前）
 
 - 新增独立 BLE GATT Mobile Companion v1：带 magic/version/type/request/payload/generation/CRC 的固定 16-byte 帧、能力读取、Mirror 申请/续租/释放 ACK、connection generation 与 lease；不复用 HID Report、HostAction 或 legacy AppCommand。当前仅授予 Mirror，Exclusive 枚举保留但拒绝。

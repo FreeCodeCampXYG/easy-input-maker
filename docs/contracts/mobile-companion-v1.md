@@ -36,4 +36,8 @@ Device Identity 在首次读取时生成 8 字节随机大写短 ID 并保存 NV
 
 ## 兼容性与证据
 
+### 首连失败与广播恢复
+
+辅助 Mobile Companion 连接不等于 HID owner。`control_conn_handle_` 仅在连接仍由 NimBLE `ble_gap_conn_find` 证明存活时才会使已连接 HID 进入控制广播策略；查找失败的 stale handle 必须在主任务中清除，并同时释放该连接的 CONFIG/Mobile endpoint、pending request 与状态快照，再触发广播 reconcile。`BLE_GAP_EVENT_ENC_CHANGE` 返回失败时同样清理辅助连接；HID owner 的失败继续走原 owner recovery。该修复只处理连接生命周期，不改变 PC HID、HostAction、legacy AppCommand 或 Mirror 事件语义。
+
 HID Report Map、Usage Page、`0x10` 配置 Feature 与 `0x11` legacy AppCommand 保持原合同。新服务需要两个额外 CCCD，产品预算从每 peer 8 调整为 10，NimBLE 容量从 32 调整为 40。宿主协议、会话代际、CCCD 容量和 HID 路由测试已通过；目标固件 CI、EasyInputApp 联调和实板断线/重连测试待验证。

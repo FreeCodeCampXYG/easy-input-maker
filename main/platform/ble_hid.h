@@ -148,6 +148,11 @@ class BleHidTransport {
   esp_err_t register_mobile_companion_service();
   void begin_mobile_endpoint_lifetime(std::uint16_t conn_handle);
   void end_mobile_endpoint_lifetime(std::uint16_t conn_handle);
+  void clear_auxiliary_connection(std::uint16_t conn_handle,
+                                  const char* reason);
+  void reconcile_stale_control_connection();
+  std::size_t mobile_endpoint_count() const;
+  bool mobile_endpoint_for_connection(std::uint16_t conn_handle) const;
   bool send_mobile_companion_frame(
       const ai_keyboard::MobileCompanionConnection& connection,
       std::uint16_t characteristic_handle,

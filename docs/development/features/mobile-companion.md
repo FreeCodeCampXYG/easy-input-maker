@@ -11,3 +11,5 @@
 当前已完成纯逻辑分片装配和 `MobileBindingOverlay` 校验；真实 GATT ReadConfig/WriteConfig、NVS 原子提交和配置 ACK 仍待平台接入。
 
 Identity 特征只读返回 NVS 持久化的 8 字节随机短 ID；事件缓存固定 32 条并支持有限窗口查询。音乐最终 PCM 增益默认 125% 且饱和裁剪，音量旋钮语义保持 5%—100%。
+
+连接失败恢复：辅助连接句柄只有在 NimBLE 仍能查到活连接时才参与广播决策。主任务发现 stale `control_conn_handle_` 会清理 CONFIG/Mobile endpoint、pending request 和状态快照，并重新 reconcile 广播；加密失败也执行同一清理。该路径不清理 HID owner、不改变 HID 报告或 Mirror 旁路，Windows/macOS 互换仍需实板验证。
