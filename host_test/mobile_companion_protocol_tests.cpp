@@ -27,6 +27,13 @@ void fixed_wire_has_magic_and_crc() {
   assert(!decode_mobile_companion_request(frame.data(), frame.size(), &decoded));
 }
 
+void default_keymap_contract_remains_explicit() {
+  const auto keymap = DefaultKeymap();
+  assert(keymap.action_for(InputId::Key1).kind == ActionKind::VoicePttHold);
+  assert(keymap.action_for(InputId::Key3).kind == ActionKind::EditPttHold);
+  assert(keymap.action_for(InputId::Key8).kind == ActionKind::Undo);
+}
+
 void session_requires_encrypted_bonded_service_ready_and_expires() {
   MobileCompanionSession session;
   assert(session.handle(kConnection, mirror_request(), false, true, true, 0).result == MobileCompanionResult::NotEncrypted);
@@ -52,5 +59,6 @@ int main() {
   fixed_wire_has_magic_and_crc();
   session_requires_encrypted_bonded_service_ready_and_expires();
   duplicate_request_is_idempotent_and_generation_isolation_holds();
+  default_keymap_contract_remains_explicit();
   return 0;
 }

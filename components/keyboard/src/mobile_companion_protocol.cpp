@@ -143,4 +143,55 @@ bool encode_mobile_companion_input_event(
   return true;
 }
 
+bool encode_mobile_companion_config_fragment(
+    const MobileCompanionConfigFragment& fragment,
+    std::array<std::uint8_t, kMobileCompanionFrameLen>* out) {
+  if (out == nullptr || fragment.request_id == 0 || fragment.total_chunks == 0 ||
+      fragment.chunk_index >= fragment.total_chunks || fragment.total_len == 0 ||
+      fragment.total_len > kMobileCompanionConfigMaxBytes ||
+      fragment.data_len > kMobileCompanionConfigFragmentDataLen) {
+    return false;
+  }
+  out->fill(0);
+  (*out)[0] = kMobileCompanionMagic;
+  (*out)[1] = kMobileCompanionProtocolVersion;
+  (*out)[2] = static_cast<std::uint8_t>(MobileCompanionFrameType::Config);
+  (*out)[3] = static_cast<std::uint8_t>(fragment.command);
+  put16(fragment.request_id, out->data() + 4);
+  put16(fragment.chunk_index, out->data() + 6);
+  put16(fragment.total_chunks, out->data() + 8);
+  put16(fragment.total_len, out->data() + 10);
+  put16(fragment.payload_crc, out->data() + 12);
+  for (std::size_t i = 0; i < fragment.data_len; ++i) {
+    (*out)[14 + i] = fragment.data[i];
+  }
+  return true;
+}
+
+bool decode_mobile_companion_config_fragment(
+    const std::uint8_t* data,
+    std::size_t len,
+    MobileCompanionConfigFragment* out) {
+  if (data == nullptr || out == nullptr || len != kMobileCompanionFrameLen ||
+      data[0] != kMobileCompanionMagic ||
+      data[1] != kMobileCompanionProtocolVersion ||
+      data[2] != static_cast<std::uint8_t>(MobileCompanionFrameType::Config) ||
+      (data[3] != static_cast<std::uint8_t>(MobileCompanionCommand::ReadConfig) &&
+       data[3] != static_cast<std::uint8_t>(MobileCompanionCommand::WriteConfig))) {
+    return false;
+  }
+  out->command = static_cast<MobileCompanionCommand>(data[3]);
+  out->request_id = get16(data + 4);
+  out->chunk_index = get16(data + 6);
+  out->total_chunks = get16(data + 8);
+  out->total_len = get16(data + 10);
+  out->payload_crc = get16(data + 12);
+  out->data_len = kMobileCompanionConfigFragmentDataLen;
+  out->data[0] = data[14];
+  out->data[1] = data[15];
+  return out->request_id != 0 && out->total_chunks != 0 &&
+         out->chunk_index < out->total_chunks && out->total_len != 0 &&
+         out->total_len <= kMobileCompanionConfigMaxBytes;
+}
+
 }  // namespace ai_keyboard

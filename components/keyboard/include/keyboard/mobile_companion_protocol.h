@@ -13,6 +13,8 @@ inline constexpr std::uint8_t kMobileCompanionProtocolVersion = 1;
 inline constexpr std::size_t kMobileCompanionFrameLen = 16;
 inline constexpr std::uint32_t kMobileCompanionDefaultLeaseMs = 15000;
 inline constexpr std::uint32_t kMobileCompanionMaxLeaseMs = 30000;
+inline constexpr std::size_t kMobileCompanionConfigMaxBytes = 2048;
+inline constexpr std::size_t kMobileCompanionConfigFragmentDataLen = 2;
 
 // 0 magic, 1 version, 2 type, 3 command, 4..5 request_id, 6 payload_length,
 // 7 flags, 8..11 generation, 12..13 payload, 14..15 CRC16 (little-endian).
@@ -72,6 +74,17 @@ struct MobileCompanionInputEvent {
   std::uint32_t sequence = 0;
 };
 
+struct MobileCompanionConfigFragment {
+  MobileCompanionCommand command = MobileCompanionCommand::WriteConfig;
+  std::uint16_t request_id = 0;
+  std::uint16_t chunk_index = 0;
+  std::uint16_t total_chunks = 0;
+  std::uint16_t total_len = 0;
+  std::uint16_t payload_crc = 0;
+  std::array<std::uint8_t, kMobileCompanionConfigFragmentDataLen> data{};
+  std::uint8_t data_len = 0;
+};
+
 std::uint16_t mobile_companion_crc16(const std::uint8_t* data, std::size_t len);
 bool encode_mobile_companion_request(const MobileCompanionRequest& request,
                                      std::array<std::uint8_t, kMobileCompanionFrameLen>* out);
@@ -79,5 +92,7 @@ bool decode_mobile_companion_request(const std::uint8_t* data, std::size_t len, 
 bool encode_mobile_companion_ack(const MobileCompanionAck& ack, std::array<std::uint8_t, kMobileCompanionFrameLen>* out);
 bool encode_mobile_companion_capability(MobileCompanionCapability capability, std::array<std::uint8_t, kMobileCompanionFrameLen>* out);
 bool encode_mobile_companion_input_event(const MobileCompanionInputEvent& event, std::array<std::uint8_t, kMobileCompanionFrameLen>* out);
+bool encode_mobile_companion_config_fragment(const MobileCompanionConfigFragment& fragment, std::array<std::uint8_t, kMobileCompanionFrameLen>* out);
+bool decode_mobile_companion_config_fragment(const std::uint8_t* data, std::size_t len, MobileCompanionConfigFragment* out);
 
 }  // namespace ai_keyboard

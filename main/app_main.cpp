@@ -3082,13 +3082,12 @@ bool handle_input_event(const easy_input::InputEvent& event, void* context) {
 
   // Mirror 只复制已经去抖的实体输入，绝不改变原 HID 路由；Exclusive
   // 仅在主任务先确认没有旧组合键后才会返回 true，失效会立即回到下面的基线。
-  if (app->ble.publish_mobile_input(event.input,
-                                    event.phase,
-                                    event.encoder_step,
-                                    event.order_sequence,
-                                    now)) {
-    return true;
-  }
+  // Mirror 是旁路通知，不是输入消费；即使手机通知成功，PC HID 仍必须执行原路由。
+  (void)app->ble.publish_mobile_input(event.input,
+                                      event.phase,
+                                      event.encoder_step,
+                                      event.order_sequence,
+                                      now);
 
   if (encoder_turn) {
     // Resolve the 3-second boundary before interpreting this detent, but only

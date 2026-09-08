@@ -36,6 +36,8 @@ idf_component_register(
     "src/music_builtin.cpp"
     "src/mobile_companion_protocol.cpp"
     "src/mobile_companion_session.cpp"
+    "src/mobile_companion_config.cpp"
+    "src/mobile_companion_binding.cpp"
     "src/platform_selection.cpp"
     "src/peripheral_power_lease.cpp"
     "src/power_cycle.cpp"
