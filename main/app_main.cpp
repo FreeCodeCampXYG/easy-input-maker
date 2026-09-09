@@ -767,7 +767,7 @@ ai_keyboard::BoardDiagnosticsSnapshot board_diagnostics(const AppContext* app,
   const auto last_input_age =
       app->last_input_ms == 0 ? 0 : static_cast<std::uint32_t>(now_ms - app->last_input_ms);
   const auto input = app->inputs.diagnostics();
-  return {
+  auto snapshot = ai_keyboard::BoardDiagnosticsSnapshot{
       ai_keyboard::kBoardName,
       raw_key_levels(),
       raw_encoder_levels(),
@@ -792,6 +792,12 @@ ai_keyboard::BoardDiagnosticsSnapshot board_diagnostics(const AppContext* app,
       input.encoder_partial_resets,
       input.encoder_queue_drops,
   };
+  const auto ble = app->ble.lifecycle_snapshot();
+  snapshot.ble_last_event = static_cast<std::uint8_t>(ble.event);
+  snapshot.ble_last_status = ble.status;
+  snapshot.ble_last_handle = ble.connection_handle;
+  snapshot.ble_event_sequence = ble.sequence;
+  return snapshot;
 }
 
 ai_keyboard::PowerDiagnosticsSnapshot power_diagnostics(AppContext* app,

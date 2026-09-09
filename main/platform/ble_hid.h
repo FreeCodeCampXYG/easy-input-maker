@@ -21,6 +21,7 @@
 #include "keyboard/ble_connection_profile.h"
 #include "keyboard/ble_management_gate.h"
 #include "keyboard/ble_owner_recovery.h"
+#include "keyboard/ble_status_wire.h"
 #include "keyboard/config_receiver.h"
 #include "keyboard/config_status.h"
 #include "keyboard/gatt_status_snapshot.h"
@@ -48,6 +49,7 @@ class BleHidTransport {
   void refresh_connection_identity();
   std::uint32_t connection_epoch() const;
   ai_keyboard::BleOwnerToken connection_identity() const;
+  ai_keyboard::BleLifecycleSnapshot lifecycle_snapshot() const;
   bool take_pending_config(std::string* out,
                            ai_keyboard::BleOwnerToken* origin_owner);
   bool take_pending_agent_status(ai_keyboard::AgentStatusCommand* out);
@@ -181,6 +183,9 @@ class BleHidTransport {
   void reconcile_stable_connection_parameters(const char* reason);
   void cache_connection_status(std::uint16_t conn_handle,
                                std::int32_t update_status);
+  void record_gap_event(ai_keyboard::BleLifecycleEvent event,
+                        std::int32_t status,
+                        std::uint16_t conn_handle);
   bool stable_connection_parameters_match_actual_locked() const;
   void schedule_connection_update_retry_locked(std::int64_t now_us);
   static ai_keyboard::BleInputTxResult transmit_scheduled_report_callback(
@@ -339,6 +344,12 @@ class BleHidTransport {
   std::uint16_t actual_conn_latency_ = 0;
   std::uint16_t actual_conn_supervision_timeout_ = 0;
   std::int32_t last_conn_update_status_ = 0;
+  ai_keyboard::BleLifecycleEvent last_gap_event_ =
+      ai_keyboard::BleLifecycleEvent::None;
+  std::int32_t last_gap_event_status_ = 0;
+  std::uint16_t last_gap_event_conn_handle_ =
+      ai_keyboard::MobileCompanionConnection::kNoConnection;
+  std::uint32_t gap_event_sequence_ = 0;
   // NimBLE reports notification/GATT submission synchronously, not actual
   // over-the-air completion. Accepted wireless work therefore holds the Awake
   // state through a connection-interval-derived grace deadline. This is not a

@@ -10,6 +10,21 @@
 
 namespace ai_keyboard {
 
+enum class BleLifecycleEvent : std::uint8_t {
+  None = 0,
+  Connect = 1,
+  SecurityInitiate = 2,
+  EncChange = 3,
+  Disconnect = 4,
+};
+
+struct BleLifecycleSnapshot {
+  BleLifecycleEvent event = BleLifecycleEvent::None;
+  std::int32_t status = 0;
+  std::uint16_t connection_handle = 0;
+  std::uint32_t sequence = 0;
+};
+
 struct BleStatusWireSnapshot {
   bool connected = false;
   bool parameters_valid = false;

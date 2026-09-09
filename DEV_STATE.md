@@ -1,5 +1,11 @@
 # EasyInput Maker 开发状态
 
+## 2026-09-10：复用现有 Vendor HID 进行 BLE 诊断
+
+- 不新增 CDC、额外固件 profile 或第二套日志协议；电脑端继续复用已有 Vendor HID `0x13` 状态请求与 `0x11/0x04` 分片回报。Python/Flasher 发起轮询，固件只维护 BLE 连接稳定性并回报有限状态。
+- 日志/快照保存在主机侧，不写入固件 NVS；刷写和重启不会删除主机历史记录。诊断请求沿用既有 `fresh + diagnostics` flags、512 字节状态预算和 HID-only `303A:1006` 身份。
+- 验证：宿主全量 CTest 73/73、ESP-IDF 5.5.5 / ESP32-S3 单固件构建成功，应用镜像 `0x196f30`、最小 App 分区余量 47%；Vendor HID BLE 事件快照扩展已完成，Python/Flasher 实机轮询和手机 BLE 稳定性回归待完成。
+
 ## 2026-09-09：Mobile Companion 游戏输入事件扩展
 
 - Mirror 旁路已从 KEY1/KEY3/KEY8 扩展为 KEY1—KEY8，Pressed/Released 均沿用既有去抖、`input_sequence`、`event_id`、generation、事件缓存和 QueryEvents 回放；KEY1/KEY3/KEY8 flags 保持不变，KEY2/KEY4/KEY5/KEY6/KEY7 为 0。

@@ -55,6 +55,10 @@ struct BoardDiagnosticsSnapshot {
   std::uint32_t encoder_invalid = 0;
   std::uint32_t encoder_partial = 0;
   std::uint32_t encoder_drops = 0;
+  std::uint8_t ble_last_event = 0;
+  std::int32_t ble_last_status = 0;
+  std::uint16_t ble_last_handle = 0;
+  std::uint32_t ble_event_sequence = 0;
 };
 
 struct AudioStatusSnapshot {

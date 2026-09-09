@@ -2941,6 +2941,9 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
 
   switch (event->type) {
     case BLE_GAP_EVENT_CONNECT: {
+      record_gap_event(ai_keyboard::BleLifecycleEvent::Connect,
+                       event->connect.status,
+                       event->connect.conn_handle);
       ESP_LOGI(kTag,
                "GAP %s status=%d conn_handle=%u",
                gap_event_name(event->type),
@@ -2997,6 +3000,9 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
                  "GAP security_initiate conn_handle=%u rc=%d",
                  static_cast<unsigned>(event->connect.conn_handle),
                  security_rc);
+        record_gap_event(ai_keyboard::BleLifecycleEvent::SecurityInitiate,
+                         security_rc,
+                         event->connect.conn_handle);
         request_advertising_reconcile();
       }
       if (event->connect.status != 0) {
@@ -3024,6 +3030,9 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
       return 0;
     }
     case BLE_GAP_EVENT_DISCONNECT: {
+      record_gap_event(ai_keyboard::BleLifecycleEvent::Disconnect,
+                       event->disconnect.reason,
+                       event->disconnect.conn.conn_handle);
       ESP_LOGI(kTag,
                "GAP %s reason=%d conn_handle=%u",
                gap_event_name(event->type),
@@ -3166,6 +3175,9 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
       return 0;
     }
     case BLE_GAP_EVENT_ENC_CHANGE: {
+      record_gap_event(ai_keyboard::BleLifecycleEvent::EncChange,
+                       event->enc_change.status,
+                       event->enc_change.conn_handle);
       ESP_LOGI(kTag,
                "GAP %s status=%d conn_handle=%u",
                gap_event_name(event->type),
@@ -3260,6 +3272,31 @@ int BleHidTransport::handle_gap_event(ble_gap_event* event) {
       ESP_LOGD(kTag, "GAP %s type=%u", gap_event_name(event->type), event->type);
       return 0;
   }
+}
+
+void BleHidTransport::record_gap_event(ai_keyboard::BleLifecycleEvent event,
+                                       std::int32_t status,
+                                       std::uint16_t conn_handle) {
+  portENTER_CRITICAL(&connection_power_mux_);
+  last_gap_event_ = event;
+  last_gap_event_status_ = status;
+  last_gap_event_conn_handle_ = conn_handle;
+  ++gap_event_sequence_;
+  if (gap_event_sequence_ == 0) {
+    ++gap_event_sequence_;
+  }
+  portEXIT_CRITICAL(&connection_power_mux_);
+}
+
+ai_keyboard::BleLifecycleSnapshot BleHidTransport::lifecycle_snapshot() const {
+  ai_keyboard::BleLifecycleSnapshot snapshot;
+  portENTER_CRITICAL(&connection_power_mux_);
+  snapshot.event = last_gap_event_;
+  snapshot.status = last_gap_event_status_;
+  snapshot.connection_handle = last_gap_event_conn_handle_;
+  snapshot.sequence = gap_event_sequence_;
+  portEXIT_CRITICAL(&connection_power_mux_);
+  return snapshot;
 }
 
 void BleHidTransport::begin_mobile_endpoint_lifetime(std::uint16_t conn_handle) {

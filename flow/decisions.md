@@ -2,6 +2,10 @@
 
 > 这里只追加适合公开、对后续协作确有价值的过程决策。
 
+## 2026-09-10 · BLE 诊断复用现有 Vendor HID
+- 决定：不新增 CDC、额外固件 profile 或第二套命令；电脑端 Python/Flasher 复用 Vendor HID `0x13` 状态请求，固件通过既有 `0x11/0x04` 分片回报有限 BLE 生命周期快照。
+- 边界：生产 `303A:1006` HID-only、Report ID、输入队列和 USB/BLE 行为保持不变；快照不写 NVS，主机日志负责跨刷写保留，手机 BLE 指令仍由 EasyInputApp 发起。
+
 ## 2026-09-09 · 游戏输入只扩展 Mirror 事件，不改变 PC HID
 - 决定：手机游戏旁路允许 KEY1—KEY8 的 Pressed/Released；KEY1/KEY3/KEY8 继续使用历史能力 flags，KEY2/KEY4/KEY5/KEY6/KEY7 使用 0，不扩展协议字段。
 - 兼容边界：Mirror 通知函数固定返回非 Exclusive 结果，实体输入处理继续执行 PC HID；旋钮、USB/BLE HID、默认 Keymap、HostAction 与 legacy AppCommand 均不变。

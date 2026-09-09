@@ -45,6 +45,8 @@ idf.py build
 
 默认构建关闭扬声器专项诊断。默认固件嵌入项目自有的 WaytoAGI 出厂提示音；IMA-ADPCM 与 Ogg/Opus 诊断夹具是独立的项目自有测试音，不是出厂提示音。来源和固定指纹记录在对应 `assets/README.md` 中。
 
+USB 默认构建为 HID-only（`303A:1006`），不会出现 COM 端口。需要采集 BLE 生命周期信息时，电脑端复用已有 Vendor HID `0x13` 状态请求，由 Python/Flasher 轮询读取 `0x11/0x04` 分片状态；不需要新增 CDC 镜像。
+
 本仓库是固件项目，不包含桌面 companion 应用。构建固件不要求 companion；需要体验麦克风 Wi-Fi 上行时，另需实现或连接兼容 `docs/security/audio-control-v1.md` 的本地 companion，并只在受信任的本地网络使用。
 
 ## 4. 在电脑上运行测试

@@ -51,6 +51,14 @@
 
 `phase`、`result` 和稳定 `messageCode` 是诊断主键；中文说明仅供界面展示。遇到写入失败、设备断连或恢复失败时，保留前一阶段的通过证据和当前错误码，不能把整个过程笼统显示为“烧录失败”。
 
+## BLE 连接诊断轮询
+
+BLE 连接诊断复用既有 Vendor HID，不增加 CDC 或第二套固件。电脑端 Python/Flasher 通过正常模式 HID 发送一次 `0x13` 状态请求：16 字节 payload 为 `S3R`、协议版本 `1`、小端 `request_id`、flags `0x03`（fresh + diagnostics），其余字节为 0。固件沿用 `0x11` 输入报告的 kind `0x04` 分片回报 JSON。
+
+状态 JSON 的 `diag` 对象包含最近 GAP 生命周期快照：`ble_evt=1` CONNECT、`ble_evt=2` security initiate、`ble_evt=3` ENC_CHANGE、`ble_evt=4` DISCONNECT；`ble_status` 为状态码，`ble_handle` 为连接句柄，`ble_seq` 为固件运行期间递增的事件序号。主机按 200—500 ms 轮询并将返回内容写入自己的日志文件；固件不把日志写入 NVS，刷写不会清除主机历史记录。
+
+手机 BLE 连接/服务发现/Mirror 请求仍由 EasyInputApp 发起。主机诊断命令只触发状态采样，不改变 HID owner、手机 Mirror 旁路或输入路由；因此同一诊断固件可反复测试多台手机，不需要每次重新编译或烧录。
+
 ## 验证层级
 
 1. `flash_verified`：三段镜像已写入并通过工具校验。

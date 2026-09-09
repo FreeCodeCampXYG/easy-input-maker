@@ -334,6 +334,10 @@ void append_compact_diagnostics(std::ostringstream& out,
       out, &first_diag, "last", diagnostics.last_input, 24);
   append_uint_field(out, &first_diag, "in_drop", diagnostics.input_drops);
   append_uint_field(out, &first_diag, "enc_drop", diagnostics.encoder_drops);
+  append_uint_field(out, &first_diag, "ble_evt", diagnostics.ble_last_event);
+  append_int_field(out, &first_diag, "ble_status", diagnostics.ble_last_status);
+  append_uint_field(out, &first_diag, "ble_handle", diagnostics.ble_last_handle);
+  append_uint_field(out, &first_diag, "ble_seq", diagnostics.ble_event_sequence);
   out << "}";
 }
 
