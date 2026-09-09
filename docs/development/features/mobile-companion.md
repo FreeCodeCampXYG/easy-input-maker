@@ -4,7 +4,7 @@
 
 读代码：`mobile_companion_protocol.*` 定义固定帧、CRC、lease、connection generation 和 wire；`mobile_companion_session.*` 定义会话状态机；`mobile_companion_event_cache.*` 定义有限恢复窗口；`main/platform/ble_hid.*` 提供独立 GATT 和 NVS 短 ID；`main/app_main.cpp` 在去抖输入后镜像。
 
-回归：`mobile_companion_protocol_tests`、`ble_persistence_policy_tests`、`held_keyboard_state_tests`、`transport_routing_tests` 和完整宿主 CTest。实板需分别验证未安装 App、未授权、Mirror、过期、断线、同 handle 重连和 Exclusive 拒绝。
+回归：`mobile_companion_protocol_tests`、`mobile_companion_session_tests`、`mobile_companion_event_cache_tests`、`ble_persistence_policy_tests`、`held_keyboard_state_tests`、`transport_routing_tests` 和完整宿主 CTest。Mirror 事件覆盖 KEY1—KEY8 的 Pressed/Released；本轮宿主 CTest 73/73、ESP-IDF 5.5.5 / ESP32-S3 完整编译通过。实板需分别验证未安装 App、未授权、Mirror、过期、断线、同 handle 重连和 Exclusive 拒绝。
 
 配置读写使用独立 Config 分片，最大 2048 字节、每片 2 字节、严格顺序和整段 JSON CRC 校验；完整解析/持久化前保留旧配置。手机绑定默认是 Mirror 会话 Overlay。
 
@@ -13,3 +13,5 @@
 Identity 特征只读返回 NVS 持久化的 8 字节随机短 ID；事件缓存固定 32 条并支持有限窗口查询。音乐最终 PCM 增益默认 125% 且饱和裁剪，音量旋钮语义保持 5%—100%。
 
 连接失败恢复：辅助连接句柄只有在 NimBLE 仍能查到活连接时才参与广播决策。主任务发现 stale `control_conn_handle_` 会清理 CONFIG/Mobile endpoint、pending request 和状态快照，并重新 reconcile 广播；加密失败也执行同一清理。该路径不清理 HID owner、不改变 HID 报告或 Mirror 旁路，Windows/macOS 互换仍需实板验证。
+
+游戏输入旁路：MirrorActive 时 KEY1—KEY8 的 Pressed/Released 都可发送给 EasyInputApp；KEY1/KEY3/KEY8 保留语音/改写/快捷入口 flags，其余实体键 flags 为 0。旁路通知永远不消费 PC HID，旋钮仍保持 PC HID 透传；没有有效 Mirror endpoint、租约过期或 generation 失效时只停止手机通知。

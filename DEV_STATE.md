@@ -1,5 +1,11 @@
 # EasyInput Maker 开发状态
 
+## 2026-09-09：Mobile Companion 游戏输入事件扩展
+
+- Mirror 旁路已从 KEY1/KEY3/KEY8 扩展为 KEY1—KEY8，Pressed/Released 均沿用既有去抖、`input_sequence`、`event_id`、generation、事件缓存和 QueryEvents 回放；KEY1/KEY3/KEY8 flags 保持不变，KEY2/KEY4/KEY5/KEY6/KEY7 为 0。
+- `publish_mobile_input()` 现在明确只做 Mirror 通知并返回非 Exclusive 结果；`handle_input_event()` 继续执行原 PC HID 路由。未新增 UUID、未改 16 字节帧、Identity、租约、配对流程或默认 Keymap。
+- 验证：宿主全量 CTest 73/73 通过；ESP-IDF 5.5.5 / ESP32-S3 完整编译成功，应用镜像 `0x196e40`，最小 App 分区余量 47%。真实八键/手机游戏联调、Mirror 与 PC HID 同时工作及实板验证待完成。
+
 ## 2026-09-08：Mobile Companion 首连失败与广播恢复修复
 
 - 根因：辅助 BLE 连接成功时会暂存 `control_conn_handle_`；安全失败、App 超时或异常断链若漏掉 DISCONNECT，stale handle 会让广播策略误判为仍有控制连接。

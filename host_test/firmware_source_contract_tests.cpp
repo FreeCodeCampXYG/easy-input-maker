@@ -3722,6 +3722,42 @@ void active_music_slots_never_fall_back_to_host_actions() {
   assert(guard.find("return true;") != std::string::npos);
 }
 
+void mobile_mirror_covers_all_keys_without_consuming_pc_hid() {
+  const auto ble = read_source("main/platform/ble_hid.cpp");
+  const auto publish = section(
+      ble,
+      "bool BleHidTransport::publish_mobile_input(",
+      "std::uint32_t BleHidTransport::mobile_companion_dropped_event_count()");
+  assert(publish.find("mobile_companion_mirror_input_allowed(input)") !=
+         std::string::npos);
+  assert(publish.find("return false;") != std::string::npos);
+  assert(publish.find("mobile_companion_input_flags(input)") !=
+         std::string::npos);
+  assert(publish.find("mobile_companion_session_.expire(now_ms)") !=
+         std::string::npos);
+  assert(publish.find("mobile_companion_session_.accepts(candidate, now_ms)") !=
+         std::string::npos);
+  assert(publish.find("if (!connection.valid())") != std::string::npos);
+  assert(publish.find("mobile_event_cache_.push(event)") != std::string::npos);
+  assert(publish.find("encode_mobile_companion_input_event(event, &frame)") !=
+         std::string::npos);
+
+  const auto protocol = read_source(
+      "components/keyboard/src/mobile_companion_protocol.cpp");
+  assert(protocol.find("input >= InputId::Key1 && input <= InputId::Key8") !=
+         std::string::npos);
+
+  const auto app = read_source("main/app_main.cpp");
+  const auto input = section(
+      app,
+      "bool handle_input_event(const easy_input::InputEvent& event, void* context)",
+      "void load_stored_config(AppContext* app)");
+  const auto mirror = input.find("publish_mobile_input(");
+  const auto route = input.find("dispatch_firmware_event(app, event.input, firmware_event)");
+  assert(mirror != std::string::npos && route != std::string::npos);
+  assert(mirror < route);
+}
+
 void music_controls_preserve_slot_ownership_and_persistence_ack() {
   const auto music_volume = section(
       read_source("main/app_main.cpp"),
@@ -3742,6 +3778,7 @@ void music_controls_preserve_slot_ownership_and_persistence_ack() {
 
 int main() {
   music_controls_preserve_slot_ownership_and_persistence_ack();
+  mobile_mirror_covers_all_keys_without_consuming_pc_hid();
   usb_async_work_is_durable_before_owner_notification();
   power_telemetry_reports_awake_and_real_deep_sleep_facts_only();
   battery_update_releases_hidd_lock_before_entering_nimble();

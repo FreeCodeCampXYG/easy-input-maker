@@ -2021,14 +2021,12 @@ bool BleHidTransport::publish_mobile_input(ai_keyboard::InputId input,
                                             std::int32_t encoder_step,
                                             std::uint32_t input_sequence,
                                             std::uint32_t now_ms) {
-  // v1 仅开放明确登记的 KEY1/KEY3/KEY8；其他按键和旋钮必须继续走 PC HID 基线。
-  if (input != ai_keyboard::InputId::Key1 && input != ai_keyboard::InputId::Key3 &&
-      input != ai_keyboard::InputId::Key8) {
+  // 手机游戏旁路覆盖八个实体键；旋钮和其它输入仍只走 PC HID 基线。
+  if (!ai_keyboard::mobile_companion_mirror_input_allowed(input)) {
     return false;
   }
   ai_keyboard::MobileCompanionConnection connection{};
   std::uint32_t session_generation = 0;
-  bool exclusive = false;
   portENTER_CRITICAL(&mobile_companion_mux_);
   (void)mobile_companion_session_.expire(now_ms);
   for (const auto& endpoint : mobile_endpoint_lifetimes_) {
@@ -2037,7 +2035,6 @@ bool BleHidTransport::publish_mobile_input(ai_keyboard::InputId input,
     if (mobile_companion_session_.accepts(candidate, now_ms)) {
       connection = candidate;
       session_generation = mobile_companion_session_.generation();
-      exclusive = mobile_companion_session_.mirror_active(candidate, now_ms);
       break;
     }
   }
@@ -2051,9 +2048,7 @@ bool BleHidTransport::publish_mobile_input(ai_keyboard::InputId input,
   event.phase = phase;
   event.generation = session_generation;
   event.sequence = input_sequence;
-  if (input == ai_keyboard::InputId::Key1) event.flags = ai_keyboard::kMobileFlagKey1Voice;
-  if (input == ai_keyboard::InputId::Key3) event.flags = ai_keyboard::kMobileFlagKey3Rewrite;
-  if (input == ai_keyboard::InputId::Key8) event.flags = ai_keyboard::kMobileFlagKey8Shortcut;
+  event.flags = ai_keyboard::mobile_companion_input_flags(input);
   (void)encoder_step;
   portENTER_CRITICAL(&mobile_companion_mux_);
   const auto cache_result = mobile_event_cache_.push(event);
@@ -2065,7 +2060,8 @@ bool BleHidTransport::publish_mobile_input(ai_keyboard::InputId input,
   if (ai_keyboard::encode_mobile_companion_input_event(event, &frame)) {
     (void)send_mobile_companion_frame(connection, s_mobile_companion_event_handle, frame);
   }
-  return exclusive;
+  // 当前固件只授予 Mirror；旁路通知永远不能让调用方跳过 PC HID 路由。
+  return false;
 }
 
 std::uint32_t BleHidTransport::mobile_companion_dropped_event_count() const {

@@ -2,6 +2,10 @@
 
 > 这里只追加适合公开、对后续协作确有价值的过程决策。
 
+## 2026-09-09 · 游戏输入只扩展 Mirror 事件，不改变 PC HID
+- 决定：手机游戏旁路允许 KEY1—KEY8 的 Pressed/Released；KEY1/KEY3/KEY8 继续使用历史能力 flags，KEY2/KEY4/KEY5/KEY6/KEY7 使用 0，不扩展协议字段。
+- 兼容边界：Mirror 通知函数固定返回非 Exclusive 结果，实体输入处理继续执行 PC HID；旋钮、USB/BLE HID、默认 Keymap、HostAction 与 legacy AppCommand 均不变。
+
 ## 2026-09-08 · 辅助连接 stale handle 必须 fail-closed 回收
 - 背景：手机安全失败或超时断链可能漏掉及时的 DISCONNECT，旧 `control_conn_handle_` 会阻断已连接 HID 的广播恢复。
 - 决定：把控制句柄活性校验放在主任务广播 reconcile 前；查找失败时只回收辅助 endpoint 和 pending 状态，HID owner 继续由原 owner recovery 管理。

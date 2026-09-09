@@ -75,6 +75,10 @@ struct MobileCompanionInputEvent {
   std::uint32_t sequence = 0;
 };
 
+// 手机游戏旁路只接受实体八键；旋钮和连接控制事件不得伪造为按键事件。
+bool mobile_companion_mirror_input_allowed(InputId input);
+std::uint8_t mobile_companion_input_flags(InputId input);
+
 struct MobileCompanionConfigFragment {
   MobileCompanionCommand command = MobileCompanionCommand::WriteConfig;
   std::uint16_t request_id = 0;

@@ -45,6 +45,29 @@ std::uint16_t mobile_companion_crc16(const std::uint8_t* data, std::size_t len) 
   return crc;
 }
 
+bool mobile_companion_mirror_input_allowed(InputId input) {
+  return input >= InputId::Key1 && input <= InputId::Key8;
+}
+
+std::uint8_t mobile_companion_input_flags(InputId input) {
+  switch (input) {
+    case InputId::Key1:
+      return kMobileFlagKey1Voice;
+    case InputId::Key3:
+      return kMobileFlagKey3Rewrite;
+    case InputId::Key8:
+      return kMobileFlagKey8Shortcut;
+    case InputId::Key2:
+    case InputId::Key4:
+    case InputId::Key5:
+    case InputId::Key6:
+    case InputId::Key7:
+      return 0;
+    default:
+      return 0;
+  }
+}
+
 bool encode_mobile_companion_request(
     const MobileCompanionRequest& request,
     std::array<std::uint8_t, kMobileCompanionFrameLen>* out) {
